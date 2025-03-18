@@ -29,6 +29,9 @@ export interface Expense {
   group: string
   isRecurring: boolean
   monthlyAmount: number[]
+  formula?: "Amount" | "Income %" | "Expense %"
+  formulaPercentage?: number
+  formulaExpenseId?: string
 }
 
 export interface ExpenseData {
@@ -44,14 +47,18 @@ interface ExpenseTableProps {
   isGlobalView?: boolean
   viewMode?: "month" | "year"
   yearlyData?: Record<number, { incomeData: IncomeData; expenseData: ExpenseData }> | null
+  incomeData?: IncomeData
 }
 
-export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView = false, viewMode = "month", yearlyData = null }: ExpenseTableProps) {
+export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView = false, viewMode = "month", yearlyData = null, incomeData }: ExpenseTableProps) {
   const [newExpenseName, setNewExpenseName] = React.useState("")
   const [newExpenseCategory, setNewExpenseCategory] = React.useState<string>("")
   const [selectedCategories, setSelectedCategories] = React.useState<string[]>([])
   const [newExpenseAmount, setNewExpenseAmount] = React.useState(0)
   const [newExpenseIsRecurring, setNewExpenseIsRecurring] = React.useState(true)
+  const [newExpenseFormula, setNewExpenseFormula] = React.useState<"Amount" | "Income %" | "Expense %">("Amount")
+  const [newExpenseFormulaPercentage, setNewExpenseFormulaPercentage] = React.useState<number>(0)
+  const [newExpenseFormulaExpenseId, setNewExpenseFormulaExpenseId] = React.useState<string>("")
   const [isAddingCategory, setIsAddingCategory] = React.useState(false)
   const [newCategory, setNewCategory] = React.useState("")
   const [isAddingGroup, setIsAddingGroup] = React.useState(false)
@@ -97,8 +104,59 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
     }
   }, [data, onChange])
 
+  // Recalculer les montants des dépenses quand le CA change
+  React.useEffect(() => {
+    if (!incomeData) return
+
+    const updatedExpenses = data.expenses.map(expense => {
+      if (expense.formula === "Income %" && expense.formulaPercentage) {
+        return {
+          ...expense,
+          monthlyAmount: incomeData.monthlyData.revenue.map(revenue =>
+            (revenue * expense.formulaPercentage!) / 100
+          )
+        }
+      }
+      return expense
+    })
+
+    // Ne mettre à jour que si des changements ont été effectués
+    if (JSON.stringify(updatedExpenses) !== JSON.stringify(data.expenses)) {
+      onChange({
+        ...data,
+        expenses: updatedExpenses
+      })
+    }
+  }, [incomeData, data, onChange])
+
+  // Recalculer les montants des dépenses qui utilisent la formule "Expense %"
+  React.useEffect(() => {
+    const updatedExpenses = data.expenses.map(expense => {
+      if (expense.formula === "Expense %" && expense.formulaPercentage && expense.formulaExpenseId) {
+        const referenceExpense = data.expenses.find(e => e.id === expense.formulaExpenseId)
+        if (referenceExpense) {
+          return {
+            ...expense,
+            monthlyAmount: referenceExpense.monthlyAmount.map(amount =>
+              (amount * expense.formulaPercentage!) / 100
+            )
+          }
+        }
+      }
+      return expense
+    })
+
+    // Ne mettre à jour que si des changements ont été effectués
+    if (JSON.stringify(updatedExpenses) !== JSON.stringify(data.expenses)) {
+      onChange({
+        ...data,
+        expenses: updatedExpenses
+      })
+    }
+  }, [data.expenses, onChange])
+
   const addExpense = () => {
-    if (!newExpenseName || !newExpenseAmount) return
+    if (!newExpenseName || (newExpenseFormula === "Amount" && !newExpenseAmount)) return
 
     // S'assurer que le groupe est défini
     const groupToUse = selectedGroup || "Non trié"
@@ -111,15 +169,41 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
       })
     }
 
+    // Calculer les montants mensuels en fonction de la formule
+    let monthlyAmounts: number[] = []
+    if (newExpenseFormula === "Amount") {
+      monthlyAmounts = newExpenseIsRecurring
+        ? Array(12).fill(newExpenseAmount)
+        : [newExpenseAmount, ...Array(11).fill(0)]
+    } else if (newExpenseFormula === "Income %" && incomeData) {
+      monthlyAmounts = incomeData.monthlyData.revenue.map(revenue =>
+        (revenue * newExpenseFormulaPercentage) / 100
+      )
+    } else if (newExpenseFormula === "Expense %" && newExpenseFormulaExpenseId) {
+      const referenceExpense = data.expenses.find(e => e.id === newExpenseFormulaExpenseId)
+      if (referenceExpense) {
+        monthlyAmounts = referenceExpense.monthlyAmount.map(amount =>
+          (amount * newExpenseFormulaPercentage) / 100
+        )
+      } else {
+        monthlyAmounts = Array(12).fill(0)
+      }
+    }
+
     const newExpense: Expense = {
       id: Date.now().toString(),
       name: newExpenseName,
       categories: selectedCategories.length > 0 ? selectedCategories : ["Non trié"],
       group: groupToUse,
       isRecurring: newExpenseIsRecurring,
-      monthlyAmount: newExpenseIsRecurring
-        ? Array(12).fill(newExpenseAmount)
-        : [newExpenseAmount, ...Array(11).fill(0)],
+      monthlyAmount: monthlyAmounts,
+      formula: newExpenseFormula,
+      ...(newExpenseFormula !== "Amount" && {
+        formulaPercentage: newExpenseFormulaPercentage,
+        ...(newExpenseFormula === "Expense %" && {
+          formulaExpenseId: newExpenseFormulaExpenseId
+        })
+      })
     }
 
     // Mettre à jour les données
@@ -135,6 +219,9 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
     setNewExpenseCategory("")
     setSelectedCategories([])
     setSelectedGroup("Non trié")
+    setNewExpenseFormula("Amount")
+    setNewExpenseFormulaPercentage(0)
+    setNewExpenseFormulaExpenseId("")
     setDialogOpen(false)
   }
 
@@ -615,17 +702,67 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
                     )}
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="expense-amount" className="text-right">
-                      Amount (€)
+                    <Label htmlFor="expense-formula" className="text-right">
+                      Formula
                     </Label>
-                    <Input
-                      id="expense-amount"
-                      type="number"
-                      value={newExpenseAmount || ""}
-                      onChange={(e) => setNewExpenseAmount(Number(e.target.value))}
-                      className="col-span-3"
-                    />
+                    <div className="col-span-3 space-y-4">
+                      <Select
+                        value={newExpenseFormula}
+                        onValueChange={(value: "Amount" | "Income %" | "Expense %") => setNewExpenseFormula(value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Amount">Amount</SelectItem>
+                          <SelectItem value="Income %">Income %</SelectItem>
+                          <SelectItem value="Expense %">Expense %</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {newExpenseFormula !== "Amount" && (
+                        <div className="flex gap-2">
+                          <Input
+                            type="number"
+                            value={newExpenseFormulaPercentage || ""}
+                            onChange={(e) => setNewExpenseFormulaPercentage(Number(e.target.value))}
+                            placeholder="Percentage"
+                            className="flex-1"
+                          />
+                          {newExpenseFormula === "Expense %" && (
+                            <Select
+                              value={newExpenseFormulaExpenseId}
+                              onValueChange={setNewExpenseFormulaExpenseId}
+                            >
+                              <SelectTrigger className="flex-1">
+                                <SelectValue placeholder="Select expense" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {data.expenses.map((expense) => (
+                                  <SelectItem key={expense.id} value={expense.id}>
+                                    {expense.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
+                  {newExpenseFormula === "Amount" && (
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="expense-amount" className="text-right">
+                        Amount (€)
+                      </Label>
+                      <Input
+                        id="expense-amount"
+                        type="number"
+                        value={newExpenseAmount || ""}
+                        onChange={(e) => setNewExpenseAmount(Number(e.target.value))}
+                        className="col-span-3"
+                      />
+                    </div>
+                  )}
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label className="text-right">Recurring</Label>
                     <div className="flex items-center space-x-2 col-span-3">

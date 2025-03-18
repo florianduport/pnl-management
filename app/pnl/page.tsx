@@ -942,6 +942,7 @@ export default function PnLPage() {
                 onChange={handleExpenseDataChange}
                 isReadOnly={isGlobalView}
                 isGlobalView={isGlobalView}
+                incomeData={incomeData}
               />
               <MarginTable incomeData={incomeData} expenseData={expenseData} />
             </>
@@ -962,6 +963,7 @@ export default function PnLPage() {
                 isGlobalView={true}
                 viewMode="year"
                 yearlyData={calculateYearlyData()}
+                incomeData={calculateYearlyData()?.[selectedYear]?.incomeData || incomeData}
               />
               <MarginTable
                 incomeData={calculateYearlyData()?.[selectedYear]?.incomeData || incomeData}
