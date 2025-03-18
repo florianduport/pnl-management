@@ -74,7 +74,7 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
 
   // Initialize groups if not present
   React.useEffect(() => {
-    if (!data.groups) {
+    if (!data.groups || data.groups.length === 0) {
       onChange({
         ...data,
         groups: ["Non trié"]
@@ -98,17 +98,31 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
   }, [data, onChange])
 
   const addExpense = () => {
-    if (!newExpenseName) return
+    if (!newExpenseName || !newExpenseAmount) return
+
+    // S'assurer que le groupe est défini
+    const groupToUse = selectedGroup || "Non trié"
+
+    // S'assurer que le groupe existe dans la liste des groupes
+    if (!data.groups.includes(groupToUse)) {
+      onChange({
+        ...data,
+        groups: [...data.groups, groupToUse]
+      })
+    }
 
     const newExpense: Expense = {
       id: Date.now().toString(),
       name: newExpenseName,
-      categories: selectedCategories,
-      group: selectedGroup,
+      categories: selectedCategories.length > 0 ? selectedCategories : ["Non trié"],
+      group: groupToUse,
       isRecurring: newExpenseIsRecurring,
-      monthlyAmount: newExpenseIsRecurring ? Array(12).fill(newExpenseAmount) : Array(12).fill(0),
+      monthlyAmount: newExpenseIsRecurring
+        ? Array(12).fill(newExpenseAmount)
+        : [newExpenseAmount, ...Array(11).fill(0)],
     }
 
+    // Mettre à jour les données
     onChange({
       ...data,
       expenses: [...data.expenses, newExpense],
@@ -141,9 +155,11 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
   const addGroup = () => {
     if (!newGroup || data.groups.includes(newGroup)) return
 
+    const updatedGroups = [...data.groups, newGroup]
+
     onChange({
       ...data,
-      groups: [...data.groups, newGroup],
+      groups: updatedGroups,
     })
 
     setSelectedGroup(newGroup)
