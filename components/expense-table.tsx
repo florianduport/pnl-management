@@ -75,6 +75,10 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
   const [expenseToEdit, setExpenseToEdit] = React.useState<Expense | null>(null)
   const [editExpenseName, setEditExpenseName] = React.useState("")
   const [editExpenseGroup, setEditExpenseGroup] = React.useState("")
+  const [editExpenseFormula, setEditExpenseFormula] = React.useState<"Amount" | "Income %" | "Expense %">("Amount")
+  const [editExpenseFormulaPercentage, setEditExpenseFormulaPercentage] = React.useState<number>(0)
+  const [editExpenseFormulaExpenseId, setEditExpenseFormulaExpenseId] = React.useState<string>("")
+  const [editExpenseAmount, setEditExpenseAmount] = React.useState<number>(0)
   const [isEditingGroup, setIsEditingGroup] = React.useState(false)
   const [editNewGroup, setEditNewGroup] = React.useState("")
   const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(new Set())
@@ -420,11 +424,36 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
     setExpenseToEdit(expense)
     setEditExpenseName(expense.name)
     setEditExpenseGroup(expense.group)
+    setEditExpenseFormula(expense.formula || "Amount")
+    setEditExpenseFormulaPercentage(expense.formulaPercentage || 0)
+    setEditExpenseFormulaExpenseId(expense.formulaExpenseId || "")
+    setEditExpenseAmount(expense.monthlyAmount[0] || 0)
     setEditDialogOpen(true)
   }
 
   const saveEdit = () => {
     if (!expenseToEdit) return
+
+    // Calculer les montants mensuels en fonction de la formule
+    let monthlyAmounts: number[] = []
+    if (editExpenseFormula === "Amount") {
+      monthlyAmounts = expenseToEdit.isRecurring
+        ? Array(12).fill(editExpenseAmount)
+        : [editExpenseAmount, ...Array(11).fill(0)]
+    } else if (editExpenseFormula === "Income %" && incomeData) {
+      monthlyAmounts = incomeData.monthlyData.revenue.map(revenue =>
+        (revenue * editExpenseFormulaPercentage) / 100
+      )
+    } else if (editExpenseFormula === "Expense %" && editExpenseFormulaExpenseId) {
+      const referenceExpense = data.expenses.find(e => e.id === editExpenseFormulaExpenseId)
+      if (referenceExpense) {
+        monthlyAmounts = referenceExpense.monthlyAmount.map(amount =>
+          (amount * editExpenseFormulaPercentage) / 100
+        )
+      } else {
+        monthlyAmounts = expenseToEdit.monthlyAmount
+      }
+    }
 
     const updatedExpenses = data.expenses.map((expense) => {
       if (expense.id === expenseToEdit.id) {
@@ -432,6 +461,14 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
           ...expense,
           name: editExpenseName,
           group: editExpenseGroup,
+          monthlyAmount: monthlyAmounts,
+          formula: editExpenseFormula,
+          ...(editExpenseFormula !== "Amount" && {
+            formulaPercentage: editExpenseFormulaPercentage,
+            ...(editExpenseFormula === "Expense %" && {
+              formulaExpenseId: editExpenseFormulaExpenseId
+            })
+          })
         }
       }
       return expense
@@ -1093,6 +1130,67 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
                   </Button>
                 </div>
               )}
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-expense-formula" className="text-right">
+                Formule
+              </Label>
+              <div className="col-span-3 space-y-4">
+                <Select
+                  value={editExpenseFormula}
+                  onValueChange={(value: "Amount" | "Income %" | "Expense %") => setEditExpenseFormula(value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Amount">Montant</SelectItem>
+                    <SelectItem value="Income %">% du CA</SelectItem>
+                    <SelectItem value="Expense %">% d'une dépense</SelectItem>
+                  </SelectContent>
+                </Select>
+                {editExpenseFormula === "Amount" && (
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      value={editExpenseAmount || ""}
+                      onChange={(e) => setEditExpenseAmount(Number(e.target.value))}
+                      placeholder="Montant"
+                      className="flex-1"
+                    />
+                  </div>
+                )}
+                {editExpenseFormula !== "Amount" && (
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      value={editExpenseFormulaPercentage || ""}
+                      onChange={(e) => setEditExpenseFormulaPercentage(Number(e.target.value))}
+                      placeholder="Pourcentage"
+                      className="flex-1"
+                    />
+                    {editExpenseFormula === "Expense %" && (
+                      <Select
+                        value={editExpenseFormulaExpenseId}
+                        onValueChange={setEditExpenseFormulaExpenseId}
+                      >
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="Sélectionner une dépense" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {data.expenses
+                            .filter(expense => expense.id !== expenseToEdit?.id)
+                            .map((expense) => (
+                              <SelectItem key={expense.id} value={expense.id}>
+                                {expense.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <DialogFooter>
