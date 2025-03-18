@@ -376,7 +376,9 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
   }
 
   const calculateGroupYearlyTotal = (group: string, year: number, expenses: Expense[]) => {
-    return expenses.reduce((sum, expense) => sum + expense.monthlyAmount.reduce((sum, amount) => sum + amount, 0), 0)
+    return yearlyData?.[year]?.expenseData.expenses
+      .filter(expense => expenses.some(e => e.id === expense.id))
+      .reduce((sum, expense) => sum + expense.monthlyAmount.reduce((monthSum, amount) => monthSum + amount, 0), 0) || 0
   }
 
   const renderGroupRow = (group: string, expenses: Expense[]) => {

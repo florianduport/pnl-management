@@ -151,6 +151,15 @@ const monthlyRevenueData = [
 export default function DashboardPage() {
   const [selectedEntity, setSelectedEntity] = useState<Entity>({ value: "global", label: "Global (Groupe CLAD)" })
 
+  const entities: Entity[] = [
+    { value: "global", label: "Global (Groupe CLAD)", type: "Groupe" },
+    { value: "programisto", label: "Programisto", type: "ESN" },
+    { value: "laHorde", label: "La Horde", type: "ESN" },
+    { value: "ecoleDeTuring", label: "École de Turing", type: "École" },
+    { value: "genly", label: "Genly", type: "ESN" },
+    { value: "vortex", label: "Vortex", type: "ESN" },
+  ]
+
   const handleEntityChange = (entity: Entity) => {
     setSelectedEntity(entity)
     // In a real app, you would fetch data for the selected entity here
@@ -164,7 +173,11 @@ export default function DashboardPage() {
       <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
         <div className="container flex h-16 items-center justify-between py-4">
           <h1 className="text-xl font-bold">Financial Dashboard</h1>
-          <EntitySelector onEntityChange={handleEntityChange} />
+          <EntitySelector
+            entities={entities}
+            selectedEntity={selectedEntity}
+            onEntityChange={handleEntityChange}
+          />
         </div>
       </header>
       <main className="flex-1 container py-6">

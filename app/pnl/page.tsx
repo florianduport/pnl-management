@@ -312,6 +312,7 @@ export default function PnLPage() {
   const [expenseData, setExpenseData] = useState<ExpenseData>({
     expenses: [],
     categories: [],
+    groups: ["Non trié"]
   })
   const [isGlobalView, setIsGlobalView] = useState<boolean>(true)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false)
