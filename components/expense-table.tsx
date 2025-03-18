@@ -460,7 +460,7 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
     }, {} as Record<string, Expense[]>)
 
     // Trier les groupes selon l'ordre défini dans data.groups
-    return data.groups.map(group => ({
+    return (data.groups || ["Non trié"]).map(group => ({
       group,
       expenses: groups[group] || []
     }))
@@ -805,12 +805,9 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
                 </TableRow>
               )}
               <TableRow>
-                <TableCell className="font-bold">
+                <TableCell className="font-bold" colSpan={!isGlobalView ? 3 : 2}>
                   Total
                 </TableCell>
-                <TableCell />
-                <TableCell />
-                {!isGlobalView && <TableCell />}
                 {viewMode === "month" ? (
                   months.map((_, index) => (
                     <TableCell key={index} className="min-w-[120px] font-bold">
