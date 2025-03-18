@@ -6,7 +6,16 @@ import fs from "fs"
 import path from "path"
 
 const dataDir = path.join(process.cwd(), "data")
-const dbFile = path.join(process.cwd(), "db.json")
+const versionsDir = path.join(dataDir, "versions")
+const dbFile = path.join(dataDir, "db.json")
+
+// S'assurer que les dossiers existent
+if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir)
+}
+if (!fs.existsSync(versionsDir)) {
+    fs.mkdirSync(versionsDir)
+}
 
 export async function POST(request: Request) {
     try {
@@ -16,7 +25,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Version non spécifiée" }, { status: 400 })
         }
 
-        const versionFile = path.join(dataDir, version)
+        const versionFile = path.join(versionsDir, version)
 
         // Vérifier que le fichier de version existe
         if (!fs.existsSync(versionFile)) {
@@ -31,12 +40,12 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Le fichier de version n'est pas un JSON valide" }, { status: 400 })
         }
 
-        // Si le fichier db.json existe, le renommer avec un numéro incrémental
+        // Si le fichier db.json existe, le déplacer dans le dossier versions avec un numéro incrémental
         if (fs.existsSync(dbFile)) {
-            const files = fs.readdirSync(dataDir)
+            const files = fs.readdirSync(versionsDir)
             const dbFiles = files.filter(f => f.startsWith("db") && f.endsWith(".json"))
             const nextNumber = dbFiles.length + 1
-            fs.renameSync(dbFile, path.join(dataDir, `db${nextNumber}.json`))
+            fs.renameSync(dbFile, path.join(versionsDir, `db${nextNumber}.json`))
         }
 
         // Copier le fichier de version vers db.json

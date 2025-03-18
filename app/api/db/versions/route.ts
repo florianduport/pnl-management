@@ -6,22 +6,26 @@ import fs from "fs"
 import path from "path"
 
 const dataDir = path.join(process.cwd(), "data")
-const dbFile = path.join(process.cwd(), "db.json")
+const versionsDir = path.join(dataDir, "versions")
+const dbFile = path.join(dataDir, "db.json")
 
-// S'assurer que le dossier data existe
+// S'assurer que les dossiers existent
 if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir)
+}
+if (!fs.existsSync(versionsDir)) {
+    fs.mkdirSync(versionsDir)
 }
 
 export async function GET() {
     try {
-        // Lire tous les fichiers db*.json dans le dossier data
-        const files = fs.readdirSync(dataDir)
+        // Lire tous les fichiers db*.json dans le dossier versions
+        const files = fs.readdirSync(versionsDir)
         const dbFiles = files.filter(file => file.startsWith("db") && file.endsWith(".json"))
 
         // Pour chaque fichier, récupérer sa date de modification
         const versions = dbFiles.map(file => {
-            const stats = fs.statSync(path.join(dataDir, file))
+            const stats = fs.statSync(path.join(versionsDir, file))
             return {
                 name: file,
                 date: stats.mtime,
@@ -56,12 +60,12 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Le fichier n'est pas un JSON valide" }, { status: 400 })
         }
 
-        // Si le fichier db.json existe, le renommer avec un numéro incrémental
+        // Si le fichier db.json existe, le déplacer dans le dossier versions avec un numéro incrémental
         if (fs.existsSync(dbFile)) {
-            const files = fs.readdirSync(dataDir)
+            const files = fs.readdirSync(versionsDir)
             const dbFiles = files.filter(f => f.startsWith("db") && f.endsWith(".json"))
             const nextNumber = dbFiles.length + 1
-            fs.renameSync(dbFile, path.join(dataDir, `db${nextNumber}.json`))
+            fs.renameSync(dbFile, path.join(versionsDir, `db${nextNumber}.json`))
         }
 
         // Sauvegarder le nouveau fichier comme db.json

@@ -3,8 +3,16 @@ import { JSONFile } from "lowdb/node"
 import { Low } from "lowdb"
 import { DbData } from "@/lib/db"
 import path from "path"
+import fs from "fs"
 
-const dbFile = path.join(process.cwd(), "db.json")
+const dataDir = path.join(process.cwd(), "data")
+const dbFile = path.join(dataDir, "db.json")
+
+// S'assurer que le dossier data existe
+if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir)
+}
+
 const adapter = new JSONFile<DbData>(dbFile)
 const db = new Low(adapter)
 db.data = {
