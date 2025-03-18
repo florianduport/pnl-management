@@ -15,6 +15,16 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/db/route.js"
+    ],
+    "/api/db/versions/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/db/versions/route.js"
+    ],
+    "/api/db/versions/restore/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/db/versions/restore/route.js"
     ]
   }
 }

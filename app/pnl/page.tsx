@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Save, Calendar, CalendarDays } from "lucide-react"
+import { Save, Calendar, CalendarDays, MoreVertical, Download, Upload, History } from "lucide-react"
 
 import { EntitySelector, type Entity } from "@/components/entity-selector"
 import { YearSelector } from "@/components/year-selector"
@@ -11,6 +11,13 @@ import { MarginTable } from "@/components/margin-table"
 import { ScenarioSelector, type Scenario } from "@/components/scenario-selector"
 import { Button } from "@/components/ui/button"
 import { db, type DbData } from "@/lib/db"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { VersionsDialog } from "@/components/versions-dialog"
 
 // Define the structure for scenario data
 interface ScenarioData {
@@ -290,50 +297,9 @@ export default function PnLPage() {
   const [isGlobalView, setIsGlobalView] = useState<boolean>(true)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false)
 
-  // Prevent infinite loops
+  // Refs
   const isCalculatingGlobal = useRef(false)
-
-  // Load data from database
-  useEffect(() => {
-    const loadData = async () => {
-      const data = await db.getData()
-      setScenarios(data.scenarios)
-      setScenarioData(data.scenarioData)
-      setCurrentScenario(data.scenarios[0])
-
-      // Set initial entity and data
-      const globalEntity = data.scenarioData[data.scenarios[0].id].entities.find((e) => e.value === "global") || {
-        value: "global",
-        label: "Global",
-      }
-      setSelectedEntity(globalEntity)
-      setIsGlobalView(true)
-    }
-    loadData()
-  }, [])
-
-  // Save data to database
-  const handleSave = async () => {
-    if (!currentScenario) return
-    await db.saveData({
-      scenarios,
-      scenarioData,
-    })
-    setHasUnsavedChanges(false)
-  }
-
-  // Handle unsaved changes warning
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (hasUnsavedChanges) {
-        e.preventDefault()
-        e.returnValue = "Vous avez des modifications non sauvegardées. Êtes-vous sûr de vouloir quitter la page ?"
-      }
-    }
-
-    window.addEventListener("beforeunload", handleBeforeUnload)
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload)
-  }, [hasUnsavedChanges])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Calculate global data for the current scenario and year
   const calculateGlobalData = useCallback(() => {
@@ -436,6 +402,108 @@ export default function PnLPage() {
       isCalculatingGlobal.current = false
     }
   }, [currentScenario, scenarioData, incomeData, expenseData, selectedYear])
+
+  // Calculate yearly data for the current scenario
+  const calculateYearlyData = useCallback(() => {
+    if (!currentScenario || !scenarioData[currentScenario.id]) return null
+
+    const years = [2025, 2026, 2027, 2028, 2029, 2030]
+    const yearlyData: Record<number, { incomeData: IncomeData; expenseData: ExpenseData }> = {}
+
+    years.forEach(year => {
+      const yearStr = year.toString()
+      const entityData = scenarioData[currentScenario.id].entityData[selectedEntity.value]?.years[yearStr]
+
+      if (entityData) {
+        yearlyData[year] = {
+          incomeData: {
+            etpRate: entityData.incomeData.etpRate,
+            monthlyData: {
+              etpCount: Array(12).fill(entityData.incomeData.monthlyData.etpCount.reduce((sum, count) => sum + count, 0) / 12),
+              revenue: Array(12).fill(entityData.incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0) / 12),
+            },
+          },
+          expenseData: {
+            expenses: entityData.expenseData.expenses.map(expense => ({
+              ...expense,
+              monthlyAmount: Array(12).fill(expense.monthlyAmount.reduce((sum, amount) => sum + amount, 0) / 12),
+            })),
+            categories: entityData.expenseData.categories,
+          },
+        }
+      }
+    })
+
+    return yearlyData
+  }, [currentScenario, scenarioData, selectedEntity])
+
+  // Effects
+  useEffect(() => {
+    const loadData = async () => {
+      const data = await db.getData()
+      setScenarios(data.scenarios)
+      setScenarioData(data.scenarioData)
+      setCurrentScenario(data.scenarios[0])
+
+      // Set initial entity and data
+      const globalEntity = data.scenarioData[data.scenarios[0].id].entities.find((e) => e.value === "global") || {
+        value: "global",
+        label: "Global",
+      }
+      setSelectedEntity(globalEntity)
+      setIsGlobalView(true)
+    }
+    loadData()
+  }, [])
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault()
+        e.returnValue = "Vous avez des modifications non sauvegardées. Êtes-vous sûr de vouloir quitter la page ?"
+      }
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload)
+  }, [hasUnsavedChanges])
+
+  useEffect(() => {
+    if (isGlobalView && !isCalculatingGlobal.current) {
+      const globalData = calculateGlobalData()
+      if (
+        JSON.stringify(globalData.incomeData) !== JSON.stringify(incomeData) ||
+        JSON.stringify(globalData.expenseData) !== JSON.stringify(expenseData)
+      ) {
+        setIncomeData(globalData.incomeData)
+        setExpenseData(globalData.expenseData)
+      }
+    }
+  }, [isGlobalView, calculateGlobalData, scenarioData])
+
+  // Save data to database
+  const handleSave = async () => {
+    if (!currentScenario) return
+    await db.saveData({
+      scenarios,
+      scenarioData,
+    })
+    setHasUnsavedChanges(false)
+  }
+
+  // Vérification de sécurité pour s'assurer que les données du scénario existent
+  if (!currentScenario || !scenarioData[currentScenario.id]) {
+    // Si on n'a pas de scénario, on réinitialise avec les données par défaut
+    setScenarios(defaultScenarios)
+    setScenarioData(initialScenarioData)
+    setCurrentScenario(defaultScenarios[0])
+    setSelectedEntity({ value: "global", label: "Global" })
+    setIsGlobalView(true)
+    const globalData = calculateGlobalData()
+    setIncomeData(globalData.incomeData)
+    setExpenseData(globalData.expenseData)
+    return null
+  }
 
   // Handle entity change
   const handleEntityChange = (entity: Entity, year?: number) => {
@@ -641,20 +709,6 @@ export default function PnLPage() {
     setScenarioData(updatedScenarioData)
   }
 
-  // Update global data when needed
-  useEffect(() => {
-    if (isGlobalView && !isCalculatingGlobal.current) {
-      const globalData = calculateGlobalData()
-      if (
-        JSON.stringify(globalData.incomeData) !== JSON.stringify(incomeData) ||
-        JSON.stringify(globalData.expenseData) !== JSON.stringify(expenseData)
-      ) {
-        setIncomeData(globalData.incomeData)
-        setExpenseData(globalData.expenseData)
-      }
-    }
-  }, [isGlobalView, calculateGlobalData, scenarioData])
-
   // Handle editing a scenario
   const handleEditScenario = (id: string, name: string) => {
     setHasUnsavedChanges(true)
@@ -712,52 +766,61 @@ export default function PnLPage() {
     }
   }
 
-  // Calculate yearly data for the current scenario
-  const calculateYearlyData = useCallback(() => {
-    if (!currentScenario || !scenarioData[currentScenario.id]) return null
+  // Handle export data
+  const handleExport = async () => {
+    const data = await db.getData()
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "db.json"
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
 
-    const years = [2025, 2026, 2027, 2028, 2029, 2030]
-    const yearlyData: Record<number, { incomeData: IncomeData; expenseData: ExpenseData }> = {}
+  // Handle import data
+  const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    console.log("handleImport appelé")
+    const file = event.target.files?.[0]
+    if (!file) {
+      console.log("Aucun fichier sélectionné")
+      return
+    }
 
-    years.forEach(year => {
-      const yearStr = year.toString()
-      const entityData = scenarioData[currentScenario.id].entityData[selectedEntity.value]?.years[yearStr]
+    console.log("Fichier sélectionné:", file.name)
 
-      if (entityData) {
-        yearlyData[year] = {
-          incomeData: {
-            etpRate: entityData.incomeData.etpRate,
-            monthlyData: {
-              etpCount: Array(12).fill(entityData.incomeData.monthlyData.etpCount.reduce((sum, count) => sum + count, 0) / 12),
-              revenue: Array(12).fill(entityData.incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0) / 12),
-            },
-          },
-          expenseData: {
-            expenses: entityData.expenseData.expenses.map(expense => ({
-              ...expense,
-              monthlyAmount: Array(12).fill(expense.monthlyAmount.reduce((sum, amount) => sum + amount, 0) / 12),
-            })),
-            categories: entityData.expenseData.categories,
-          },
-        }
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
+
+      console.log("Envoi de la requête à l'API...")
+      const response = await fetch("/api/db/versions", {
+        method: "POST",
+        body: formData,
+      })
+
+      console.log("Réponse reçue:", response.status)
+
+      if (!response.ok) {
+        throw new Error("Erreur lors de l'import")
       }
-    })
 
-    return yearlyData
-  }, [currentScenario, scenarioData, selectedEntity])
+      console.log("Import réussi, rechargement des données...")
+      // Recharger les données
+      const data = await db.getData()
+      setScenarios(data.scenarios)
+      setScenarioData(data.scenarioData)
+      setCurrentScenario(data.scenarios[0])
 
-  // Vérification de sécurité pour s'assurer que les données du scénario existent
-  if (!currentScenario || !scenarioData[currentScenario.id]) {
-    // Si on n'a pas de scénario, on réinitialise avec les données par défaut
-    setScenarios(defaultScenarios)
-    setScenarioData(initialScenarioData)
-    setCurrentScenario(defaultScenarios[0])
-    setSelectedEntity({ value: "global", label: "Global" })
-    setIsGlobalView(true)
-    const globalData = calculateGlobalData()
-    setIncomeData(globalData.incomeData)
-    setExpenseData(globalData.expenseData)
-    return null
+      // Réinitialiser l'input file pour permettre de réimporter le même fichier
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ""
+      }
+    } catch (error) {
+      console.error("Erreur lors de l'import:", error)
+    }
   }
 
   return (
@@ -785,6 +848,34 @@ export default function PnLPage() {
             <Button variant="outline" size="icon" onClick={handleSave} title="Sauvegarder">
               <Save className="h-4 w-4" />
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" title="Plus d'options">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExport}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Exporter
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={(e) => {
+                  e.preventDefault()
+                  fileInputRef.current?.click()
+                }}>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Importer
+                </DropdownMenuItem>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
+                  accept=".json"
+                  onChange={handleImport}
+                />
+                <VersionsDialog />
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </header>

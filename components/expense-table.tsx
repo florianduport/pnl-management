@@ -224,6 +224,18 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
     ? data.expenses.filter(expense => expense.categories.some(category => filteredCategories.includes(category)))
     : data.expenses
 
+  const calculateFilteredTotal = () => {
+    return filteredExpenses.reduce((total, expense) => {
+      return total + expense.monthlyAmount.reduce((sum, amount) => sum + amount, 0)
+    }, 0)
+  }
+
+  const calculateMonthlyFilteredTotal = (month: number) => {
+    return filteredExpenses.reduce((total, expense) => {
+      return total + (expense.monthlyAmount[month] || 0)
+    }, 0)
+  }
+
   const years = [2025, 2026, 2027, 2028, 2029, 2030]
 
   return (
@@ -463,6 +475,42 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
                   )}
                 </TableRow>
               ))}
+              {filteredCategories.length > 0 && (
+                <TableRow>
+                  <TableCell className="font-bold">
+                    Sous-total (Filtré)
+                  </TableCell>
+                  <TableCell />
+                  {!isGlobalView && <TableCell />}
+                  {viewMode === "month" ? (
+                    months.map((_, index) => (
+                      <TableCell key={index} className="min-w-[120px] font-bold">
+                        {calculateMonthlyFilteredTotal(index).toLocaleString("fr-FR")}
+                      </TableCell>
+                    ))
+                  ) : (
+                    years.map((year) => (
+                      <TableCell key={year} className="min-w-[120px] font-bold">
+                        {yearlyData?.[year]?.expenseData.expenses
+                          .filter(expense => filteredExpenses.some(fe => fe.id === expense.id))
+                          .reduce((sum, expense) => sum + expense.monthlyAmount.reduce((sum, amount) => sum + amount, 0), 0)
+                          .toLocaleString("fr-FR") || 0}
+                      </TableCell>
+                    ))
+                  )}
+                  <TableCell className="font-bold">
+                    {viewMode === "month" ? (
+                      calculateFilteredTotal().toLocaleString("fr-FR")
+                    ) : (
+                      years.reduce((sum, year) => sum + (yearlyData?.[year]?.expenseData.expenses
+                        .filter(expense => filteredExpenses.some(fe => fe.id === expense.id))
+                        .reduce((expSum, expense) => expSum + expense.monthlyAmount.reduce((sum, amount) => sum + amount, 0), 0) || 0), 0)
+                        .toLocaleString("fr-FR")
+                    )}
+                  </TableCell>
+                  <TableCell />
+                </TableRow>
+              )}
               <TableRow>
                 <TableCell className="font-bold">
                   Total
