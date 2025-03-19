@@ -763,6 +763,38 @@ export default function PnLPage() {
     setExpenseData(entityData.expenseData)
   }
 
+  // Handle duplicating a year
+  const handleYearDuplicate = (sourceYear: number, targetYear: number) => {
+    if (!currentScenario) return
+
+    setHasUnsavedChanges(true)
+
+    const updatedScenarioData = { ...scenarioData }
+    const currentScenarioData = updatedScenarioData[currentScenario.id]
+
+    // Pour chaque entité, copier les données de l'année source vers l'année cible
+    Object.keys(currentScenarioData.entityData).forEach((entityKey) => {
+      const entityData = currentScenarioData.entityData[entityKey]
+      if (entityData.years[sourceYear.toString()]) {
+        // Créer une copie profonde des données de l'année source
+        entityData.years[targetYear.toString()] = JSON.parse(
+          JSON.stringify(entityData.years[sourceYear.toString()])
+        )
+      }
+    })
+
+    setScenarioData(updatedScenarioData)
+
+    // Si l'année cible est l'année sélectionnée, mettre à jour les données affichées
+    if (targetYear === selectedYear) {
+      const entityData = currentScenarioData.entityData[selectedEntity.value]?.years[targetYear.toString()]
+      if (entityData) {
+        setIncomeData(entityData.incomeData)
+        setExpenseData(entityData.expenseData)
+      }
+    }
+  }
+
   // Handle editing a scenario
   const handleEditScenario = (id: string, name: string) => {
     setHasUnsavedChanges(true)
@@ -961,7 +993,11 @@ export default function PnLPage() {
                 Per Year
               </Button>
             </div>
-            <YearSelector onYearChange={handleYearChange} disabled={viewMode === "year"} />
+            <YearSelector
+              onYearChange={handleYearChange}
+              onYearDuplicate={handleYearDuplicate}
+              disabled={viewMode === "year"}
+            />
           </div>
         </div>
 
