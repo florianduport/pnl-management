@@ -86,7 +86,7 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
   const totalRevenue = data.monthlyData.revenue.reduce((sum: number, rev: number) => sum + rev, 0)
   const avgEtp = totalEtp / 12
 
-  const years = [2025, 2026, 2027, 2028, 2029, 2030]
+  const years = Array.from({ length: 16 }, (_, i) => 2020 + i)
 
   return (
     <Card>

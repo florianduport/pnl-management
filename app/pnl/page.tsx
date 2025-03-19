@@ -429,7 +429,7 @@ export default function PnLPage() {
   const calculateYearlyData = useCallback(() => {
     if (!currentScenario || !scenarioData[currentScenario.id]) return null
 
-    const years = [2025, 2026, 2027, 2028, 2029, 2030]
+    const years = Array.from({ length: 16 }, (_, i) => 2020 + i) // Génère un tableau de 2020 à 2035
     const yearlyData: Record<number, { incomeData: IncomeData; expenseData: ExpenseData }> = {}
 
     years.forEach(year => {

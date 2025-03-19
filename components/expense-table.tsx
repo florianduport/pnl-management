@@ -309,8 +309,8 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
     })
   }
 
-  const removeExpense = (id: string) => {
-    setExpenseToDelete(id)
+  const handleDeleteClick = (expenseId: string) => {
+    setExpenseToDelete(expenseId)
     setDeleteDialogOpen(true)
   }
 
@@ -418,7 +418,7 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
     }, 0)
   }
 
-  const years = [2025, 2026, 2027, 2028, 2029, 2030]
+  const years = Array.from({ length: 16 }, (_, i) => 2020 + i)
 
   const openEditDialog = (expense: Expense) => {
     setExpenseToEdit(expense)
@@ -945,7 +945,7 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
                                   <DropdownMenuItem onClick={() => openEditDialog(expense)}>
                                     Modifier
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => removeExpense(expense.id)} className="text-destructive">
+                                  <DropdownMenuItem onClick={() => handleDeleteClick(expense.id)} className="text-destructive">
                                     Supprimer
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>

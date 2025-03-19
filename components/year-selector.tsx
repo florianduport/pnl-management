@@ -33,7 +33,9 @@ interface YearSelectorProps {
 
 export function YearSelector({ onYearChange, onYearDuplicate, disabled = false }: YearSelectorProps) {
   const currentYear = 2025
-  const years = Array.from({ length: 6 }, (_, i) => currentYear + i)
+  const minYear = 2020
+  const maxYear = 2035
+  const years = Array.from({ length: 16 }, (_, i) => minYear + i)
   const [selectedYear, setSelectedYear] = useState<number>(currentYear)
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false)
   const [targetYear, setTargetYear] = useState<number | null>(null)
@@ -45,7 +47,7 @@ export function YearSelector({ onYearChange, onYearDuplicate, disabled = false }
   }
 
   const handlePreviousYear = () => {
-    if (selectedYear > currentYear) {
+    if (selectedYear > minYear) {
       const newYear = selectedYear - 1
       setSelectedYear(newYear)
       onYearChange(newYear)
@@ -53,7 +55,7 @@ export function YearSelector({ onYearChange, onYearDuplicate, disabled = false }
   }
 
   const handleNextYear = () => {
-    if (selectedYear < currentYear + 5) {
+    if (selectedYear < maxYear) {
       const newYear = selectedYear + 1
       setSelectedYear(newYear)
       onYearChange(newYear)
@@ -70,7 +72,7 @@ export function YearSelector({ onYearChange, onYearDuplicate, disabled = false }
 
   return (
     <div className="flex items-center gap-2">
-      {selectedYear > currentYear && (
+      {selectedYear > minYear && (
         <Button
           variant="outline"
           size="icon"
@@ -113,7 +115,7 @@ export function YearSelector({ onYearChange, onYearDuplicate, disabled = false }
           ))}
         </SelectContent>
       </Select>
-      {selectedYear < currentYear + 5 && (
+      {selectedYear < maxYear && (
         <Button
           variant="outline"
           size="icon"

@@ -14,7 +14,7 @@ interface MarginTableProps {
 
 export function MarginTable({ incomeData, expenseData, viewMode = "month", yearlyData = null }: MarginTableProps) {
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-  const years = [2025, 2026, 2027, 2028, 2029, 2030]
+  const years = Array.from({ length: 16 }, (_, i) => 2020 + i)
 
   const calculateMonthlyMargin = (month: number) => {
     const revenue = incomeData.monthlyData.revenue[month] || 0
