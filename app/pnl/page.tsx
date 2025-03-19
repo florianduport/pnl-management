@@ -732,6 +732,37 @@ export default function PnLPage() {
     setScenarioData(updatedScenarioData)
   }
 
+  // Handle duplicating an entity
+  const handleDuplicateEntity = (entity: Entity) => {
+    if (!currentScenario) return
+
+    setHasUnsavedChanges(true)
+
+    // Create new entity with "Copie" prefix
+    const newEntity: Entity = {
+      value: `copie-${entity.value}`,
+      label: `Copie ${entity.label}`,
+      type: entity.type,
+    }
+
+    // Add entity to current scenario
+    const updatedScenarioData = { ...scenarioData }
+    updatedScenarioData[currentScenario.id].entities = [...updatedScenarioData[currentScenario.id].entities, newEntity]
+
+    // Deep copy entity data
+    const originalEntityData = updatedScenarioData[currentScenario.id].entityData[entity.value]
+    updatedScenarioData[currentScenario.id].entityData[newEntity.value] = JSON.parse(JSON.stringify(originalEntityData))
+
+    setScenarioData(updatedScenarioData)
+
+    // Switch to the new entity
+    setSelectedEntity(newEntity)
+    setIsGlobalView(false)
+    const entityData = updatedScenarioData[currentScenario.id].entityData[newEntity.value].years[selectedYear.toString()]
+    setIncomeData(entityData.incomeData)
+    setExpenseData(entityData.expenseData)
+  }
+
   // Handle editing a scenario
   const handleEditScenario = (id: string, name: string) => {
     setHasUnsavedChanges(true)
@@ -867,6 +898,7 @@ export default function PnLPage() {
               onEntityAdd={handleAddEntity}
               onEntityEdit={handleEditEntity}
               onEntityDelete={handleDeleteEntity}
+              onEntityDuplicate={handleDuplicateEntity}
             />
             <Button variant="outline" size="icon" onClick={handleSave} title="Sauvegarder">
               <Save className="h-4 w-4" />

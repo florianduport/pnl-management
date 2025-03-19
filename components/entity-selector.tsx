@@ -26,9 +26,10 @@ interface EntitySelectorProps {
   onEntityAdd?: (entity: Entity) => void
   onEntityEdit?: (oldValue: string, entity: Entity) => void
   onEntityDelete?: (value: string) => void
+  onEntityDuplicate?: (entity: Entity) => void
 }
 
-export function EntitySelector({ entities, selectedEntity, onEntityChange, onEntityAdd, onEntityEdit, onEntityDelete }: EntitySelectorProps) {
+export function EntitySelector({ entities, selectedEntity, onEntityChange, onEntityAdd, onEntityEdit, onEntityDelete, onEntityDuplicate }: EntitySelectorProps) {
   const [open, setOpen] = React.useState(false)
   const [value, setValue] = React.useState("global")
   const [dialogOpen, setDialogOpen] = React.useState(false)
@@ -111,7 +112,7 @@ export function EntitySelector({ entities, selectedEntity, onEntityChange, onEnt
                       <span>{entity.label}</span>
                       {entity.type && <span className="ml-2 text-xs text-muted-foreground">({entity.type})</span>}
                     </div>
-                    {entity.value !== "global" && (onEntityEdit || onEntityDelete) && (
+                    {entity.value !== "global" && (onEntityEdit || onEntityDelete || onEntityDuplicate) && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                           <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
@@ -119,6 +120,11 @@ export function EntitySelector({ entities, selectedEntity, onEntityChange, onEnt
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          {onEntityDuplicate && (
+                            <DropdownMenuItem onClick={() => onEntityDuplicate(entity)}>
+                              Dupliquer
+                            </DropdownMenuItem>
+                          )}
                           {onEntityEdit && (
                             <DropdownMenuItem onClick={() => openEditDialog(entity)}>
                               Modifier
