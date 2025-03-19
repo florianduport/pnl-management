@@ -606,6 +606,52 @@ export default function PnLPage() {
     setScenarioData(updatedScenarioData)
   }
 
+  // Handle expense duplication between years
+  const handleExpenseDuplicate = (expense: Expense, sourceYear: number, targetYear: number) => {
+    if (!currentScenario) return
+
+    setHasUnsavedChanges(true)
+
+    const updatedScenarioData = { ...scenarioData }
+    const currentScenarioData = updatedScenarioData[currentScenario.id]
+    const entityData = currentScenarioData.entityData[selectedEntity.value]
+
+    // Créer une copie de la dépense avec un nouvel ID
+    const newExpense: Expense = {
+      ...expense,
+      id: `${expense.id}-${Date.now()}`,
+      name: `${expense.name} (Copie)`,
+    }
+
+    // Si l'année cible n'existe pas, l'initialiser
+    if (!entityData.years[targetYear.toString()]) {
+      entityData.years[targetYear.toString()] = {
+        incomeData: {
+          etpRate: 10000,
+          monthlyData: {
+            etpCount: Array(12).fill(0),
+            revenue: Array(12).fill(0),
+          },
+        },
+        expenseData: {
+          expenses: [],
+          categories: entityData.years[sourceYear.toString()].expenseData.categories,
+          groups: entityData.years[sourceYear.toString()].expenseData.groups,
+        },
+      }
+    }
+
+    // Ajouter la nouvelle dépense dans l'année cible
+    entityData.years[targetYear.toString()].expenseData.expenses.push(newExpense)
+
+    setScenarioData(updatedScenarioData)
+
+    // Si l'année cible est l'année sélectionnée, mettre à jour les données affichées
+    if (targetYear === selectedYear) {
+      setExpenseData(entityData.years[targetYear.toString()].expenseData)
+    }
+  }
+
   // Handle year change
   const handleYearChange = (year: number) => {
     setSelectedYear(year)
@@ -786,14 +832,45 @@ export default function PnLPage() {
     const updatedScenarioData = { ...scenarioData }
     const currentScenarioData = updatedScenarioData[currentScenario.id]
 
+    console.log("Duplication d'année:", { sourceYear, targetYear })
+    console.log("Données source:", currentScenarioData.entityData[selectedEntity.value]?.years[sourceYear.toString()])
+
     // Pour chaque entité, copier les données de l'année source vers l'année cible
     Object.keys(currentScenarioData.entityData).forEach((entityKey) => {
       const entityData = currentScenarioData.entityData[entityKey]
-      if (entityData.years[sourceYear.toString()]) {
+      const sourceYearData = entityData.years[sourceYear.toString()]
+
+      if (sourceYearData) {
+        console.log(`Copie des données pour l'entité ${entityKey}`)
+
         // Créer une copie profonde des données de l'année source
-        entityData.years[targetYear.toString()] = JSON.parse(
-          JSON.stringify(entityData.years[sourceYear.toString()])
-        )
+        const targetYearData = {
+          incomeData: {
+            etpRate: sourceYearData.incomeData.etpRate,
+            monthlyData: {
+              etpCount: [...sourceYearData.incomeData.monthlyData.etpCount],
+              revenue: [...sourceYearData.incomeData.monthlyData.revenue],
+            },
+          },
+          expenseData: {
+            expenses: sourceYearData.expenseData.expenses.map(expense => ({
+              ...expense,
+              monthlyAmount: [...expense.monthlyAmount],
+            })),
+            categories: [...sourceYearData.expenseData.categories],
+            groups: [...sourceYearData.expenseData.groups],
+          },
+        }
+
+        // Supprimer d'abord les données existantes de l'année cible si elles existent
+        if (entityData.years[targetYear.toString()]) {
+          delete entityData.years[targetYear.toString()]
+        }
+
+        // Mettre à jour les données de l'année cible
+        entityData.years[targetYear.toString()] = targetYearData
+
+        console.log(`Données cible pour ${entityKey}:`, entityData.years[targetYear.toString()])
       }
     })
 
@@ -803,6 +880,7 @@ export default function PnLPage() {
     if (targetYear === selectedYear) {
       const entityData = currentScenarioData.entityData[selectedEntity.value]?.years[targetYear.toString()]
       if (entityData) {
+        console.log("Mise à jour des données affichées:", entityData)
         setIncomeData(entityData.incomeData)
         setExpenseData(entityData.expenseData)
       }
@@ -1025,6 +1103,7 @@ export default function PnLPage() {
                 isReadOnly={isGlobalView}
                 isGlobalView={isGlobalView}
                 incomeData={incomeData}
+                onExpenseDuplicate={handleExpenseDuplicate}
               />
               <MarginTable incomeData={incomeData} expenseData={expenseData} />
             </>
@@ -1046,6 +1125,7 @@ export default function PnLPage() {
                 viewMode="year"
                 yearlyData={calculateYearlyData()}
                 incomeData={calculateYearlyData()?.[selectedYear]?.incomeData || incomeData}
+                onExpenseDuplicate={handleExpenseDuplicate}
               />
               <MarginTable
                 incomeData={calculateYearlyData()?.[selectedYear]?.incomeData || incomeData}

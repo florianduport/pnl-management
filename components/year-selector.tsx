@@ -93,28 +93,30 @@ export function YearSelector({ onYearChange, onYearDuplicate, disabled = false }
               value={year.toString()}
               className="flex items-center justify-between"
             >
-              <span>{year}</span>
-              {onYearDuplicate && year !== selectedYear && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => {
-                      setTargetYear(year)
-                      setDuplicateDialogOpen(true)
-                    }}>
-                      Dupliquer depuis {selectedYear}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
+              {year}
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
+      {onYearDuplicate && selectedYear && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="icon">
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => {
+                setTargetYear(selectedYear + 1)
+                setDuplicateDialogOpen(true)
+              }}
+            >
+              Dupliquer
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
       {selectedYear < maxYear && (
         <Button
           variant="outline"
@@ -138,7 +140,18 @@ export function YearSelector({ onYearChange, onYearDuplicate, disabled = false }
             </div>
             <div className="space-y-2">
               <div className="text-sm font-medium">Année cible</div>
-              <div className="text-sm text-muted-foreground">{targetYear}</div>
+              <Select value={targetYear?.toString()} onValueChange={(value) => setTargetYear(Number(value))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {years.map((year) => year !== selectedYear && (
+                    <SelectItem key={year} value={year.toString()}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>

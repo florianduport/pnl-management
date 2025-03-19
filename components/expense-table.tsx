@@ -38,6 +38,10 @@ export interface ExpenseData {
   expenses: Expense[]
   categories: string[]
   groups: string[]
+  yearlyData?: Record<number, {
+    incomeData: IncomeData
+    expenseData: ExpenseData
+  }>
 }
 
 interface ExpenseTableProps {
@@ -48,9 +52,10 @@ interface ExpenseTableProps {
   viewMode?: "month" | "year"
   yearlyData?: Record<number, { incomeData: IncomeData; expenseData: ExpenseData }> | null
   incomeData?: IncomeData
+  onExpenseDuplicate?: (expense: Expense, sourceYear: number, targetYear: number) => void
 }
 
-export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView = false, viewMode = "month", yearlyData = null, incomeData }: ExpenseTableProps) {
+export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView = false, viewMode = "month", yearlyData = null, incomeData, onExpenseDuplicate }: ExpenseTableProps) {
   const [newExpenseName, setNewExpenseName] = React.useState("")
   const [newExpenseCategory, setNewExpenseCategory] = React.useState<string>("")
   const [selectedCategories, setSelectedCategories] = React.useState<string[]>([])
@@ -82,6 +87,10 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
   const [isEditingGroup, setIsEditingGroup] = React.useState(false)
   const [editNewGroup, setEditNewGroup] = React.useState("")
   const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(new Set())
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = React.useState(false)
+  const [expenseToDuplicate, setExpenseToDuplicate] = React.useState<Expense | null>(null)
+  const [sourceYear, setSourceYear] = React.useState<number>(2025)
+  const [targetYear, setTargetYear] = React.useState<number>(2025)
 
   // Initialize groups if not present
   React.useEffect(() => {
@@ -608,6 +617,21 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
     }))
   }, [filteredExpenses, data.groups])
 
+  const handleDuplicateClick = (expense: Expense) => {
+    setExpenseToDuplicate(expense)
+    setSourceYear(2025) // Année par défaut
+    setTargetYear(2025) // Année par défaut
+    setDuplicateDialogOpen(true)
+  }
+
+  const confirmDuplicate = () => {
+    if (!expenseToDuplicate || !onExpenseDuplicate) return
+
+    onExpenseDuplicate(expenseToDuplicate, sourceYear, targetYear)
+    setDuplicateDialogOpen(false)
+    setExpenseToDuplicate(null)
+  }
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -945,6 +969,9 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
                                   <DropdownMenuItem onClick={() => openEditDialog(expense)}>
                                     Modifier
                                   </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleDuplicateClick(expense)}>
+                                    Dupliquer
+                                  </DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => handleDeleteClick(expense.id)} className="text-destructive">
                                     Supprimer
                                   </DropdownMenuItem>
@@ -1195,6 +1222,50 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
           </div>
           <DialogFooter>
             <Button onClick={saveEdit}>Enregistrer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={duplicateDialogOpen} onOpenChange={setDuplicateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Dupliquer la dépense</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Année source</Label>
+                <Select value={sourceYear.toString()} onValueChange={(value) => setSourceYear(Number(value))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {years.map((year) => (
+                      <SelectItem key={year} value={year.toString()}>
+                        {year}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Année cible</Label>
+                <Select value={targetYear.toString()} onValueChange={(value) => setTargetYear(Number(value))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {years.map((year) => (
+                      <SelectItem key={year} value={year.toString()}>
+                        {year}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={confirmDuplicate}>Dupliquer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
