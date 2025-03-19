@@ -11,6 +11,10 @@ import type { ExpenseData } from "./expense-table"
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
+const formatNumber = (value: number) => {
+  return Number.isInteger(value) ? value.toString() : value.toFixed(1)
+}
+
 export interface IncomeData {
   etpRate: number
   monthlyData: {
@@ -153,22 +157,22 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
                         {months.map((_, index) => (
                           <TableCell key={index} className="min-w-[120px]">
                             <div className="px-2 py-1 rounded-md bg-muted/50">
-                              {entityType !== "École" ? data.monthlyData.etpCount[index]?.toFixed(1) || "0.0" : "0.0"}
+                              {entityType !== "École" ? formatNumber(data.monthlyData.etpCount[index] || 0) : "0"}
                             </div>
                           </TableCell>
                         ))}
-                        <TableCell className="font-bold">{entityType !== "École" ? avgEtp.toFixed(1) : "0.0"}</TableCell>
+                        <TableCell className="font-bold">{entityType !== "École" ? formatNumber(avgEtp) : "0"}</TableCell>
                       </TableRow>
                       <TableRow>
                         <TableCell className="font-medium">Student Count</TableCell>
                         {months.map((_, index) => (
                           <TableCell key={index} className="min-w-[120px]">
                             <div className="px-2 py-1 rounded-md bg-muted/50">
-                              {entityType === "École" ? data.monthlyData.etpCount[index]?.toFixed(1) || "0.0" : "0.0"}
+                              {entityType === "École" ? formatNumber(data.monthlyData.etpCount[index] || 0) : "0"}
                             </div>
                           </TableCell>
                         ))}
-                        <TableCell className="font-bold">{entityType === "École" ? avgEtp.toFixed(1) : "0.0"}</TableCell>
+                        <TableCell className="font-bold">{entityType === "École" ? formatNumber(avgEtp) : "0"}</TableCell>
                       </TableRow>
                     </>
                   ) : (
@@ -185,7 +189,7 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
                           />
                         </TableCell>
                       ))}
-                      <TableCell className="font-bold">{avgEtp.toFixed(1)}</TableCell>
+                      <TableCell className="font-bold">{formatNumber(avgEtp)}</TableCell>
                     </TableRow>
                   )}
                   <TableRow>
@@ -207,12 +211,12 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
                     {years.map((year) => (
                       <TableCell key={year} className="min-w-[120px]">
                         <div className="px-2 py-1 rounded-md bg-muted/50">
-                          {yearlyData?.[year]?.incomeData.monthlyData.etpCount[0]?.toFixed(1) || "0.0"}
+                          {yearlyData?.[year]?.incomeData.monthlyData.etpCount[0] ? formatNumber(yearlyData[year].incomeData.monthlyData.etpCount[0]) : "0"}
                         </div>
                       </TableCell>
                     ))}
                     <TableCell className="font-bold">
-                      {years.reduce((sum, year) => sum + (yearlyData?.[year]?.incomeData.monthlyData.etpCount[0] || 0), 0).toFixed(1)}
+                      {formatNumber(years.reduce((sum, year) => sum + (yearlyData?.[year]?.incomeData.monthlyData.etpCount[0] || 0), 0))}
                     </TableCell>
                   </TableRow>
                   <TableRow>
@@ -225,7 +229,7 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
                       </TableCell>
                     ))}
                     <TableCell className="font-bold">
-                      {years.reduce((sum, year) => sum + (yearlyData?.[year]?.incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0) || 0), 0).toLocaleString("fr-FR")}
+                      {formatNumber(years.reduce((sum, year) => sum + (yearlyData?.[year]?.incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0) || 0), 0))}
                     </TableCell>
                   </TableRow>
                 </>

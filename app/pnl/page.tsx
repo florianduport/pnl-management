@@ -441,7 +441,7 @@ export default function PnLPage() {
           incomeData: {
             etpRate: entityData.incomeData.etpRate,
             monthlyData: {
-              etpCount: Array(12).fill(entityData.incomeData.monthlyData.etpCount.reduce((sum, count) => sum + count, 0) / 12),
+              etpCount: Array(12).fill(Math.max(...entityData.incomeData.monthlyData.etpCount)),
               revenue: Array(12).fill(entityData.incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0) / 12),
             },
           },
