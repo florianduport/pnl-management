@@ -206,19 +206,59 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
                 </>
               ) : (
                 <>
-                  <TableRow>
-                    <TableCell className="font-medium">{getEntityLabel()} Count</TableCell>
-                    {years.map((year) => (
-                      <TableCell key={year} className="min-w-[120px]">
-                        <div className="px-2 py-1 rounded-md bg-muted/50">
-                          {yearlyData?.[year]?.incomeData.monthlyData.etpCount[0] ? formatNumber(yearlyData[year].incomeData.monthlyData.etpCount[0]) : "0"}
-                        </div>
+                  {isReadOnly && (
+                    <>
+                      <TableRow>
+                        <TableCell className="font-medium">ETP Count</TableCell>
+                        {years.map((year) => (
+                          <TableCell key={year} className="min-w-[120px]">
+                            <div className="px-2 py-1 rounded-md bg-muted/50">
+                              {entityType !== "École" ? formatNumber(yearlyData?.[year]?.incomeData.monthlyData.etpCount[0] || 0) : "0"}
+                            </div>
+                          </TableCell>
+                        ))}
+                        <TableCell className="font-bold">
+                          {formatNumber(years.reduce((sum, year) => sum + (entityType !== "École" ? (yearlyData?.[year]?.incomeData.monthlyData.etpCount[0] || 0) : 0), 0))}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="font-medium">Student Count</TableCell>
+                        {years.map((year) => {
+                          const yearData = yearlyData?.[year]?.incomeData.monthlyData.etpCount || []
+                          const maxStudentCount = yearData.length > 0 ? Math.max(...yearData) : 0
+                          return (
+                            <TableCell key={year} className="min-w-[120px]">
+                              <div className="px-2 py-1 rounded-md bg-muted/50">
+                                {formatNumber(maxStudentCount)}
+                              </div>
+                            </TableCell>
+                          )
+                        })}
+                        <TableCell className="font-bold">
+                          {formatNumber(years.reduce((sum, year) => {
+                            const yearData = yearlyData?.[year]?.incomeData.monthlyData.etpCount || []
+                            const maxStudentCount = yearData.length > 0 ? Math.max(...yearData) : 0
+                            return sum + maxStudentCount
+                          }, 0))}
+                        </TableCell>
+                      </TableRow>
+                    </>
+                  )}
+                  {!isReadOnly && (
+                    <TableRow>
+                      <TableCell className="font-medium">{getEntityLabel()} Count</TableCell>
+                      {years.map((year) => (
+                        <TableCell key={year} className="min-w-[120px]">
+                          <div className="px-2 py-1 rounded-md bg-muted/50">
+                            {formatNumber(yearlyData?.[year]?.incomeData.monthlyData.etpCount[0] || 0)}
+                          </div>
+                        </TableCell>
+                      ))}
+                      <TableCell className="font-bold">
+                        {formatNumber(years.reduce((sum, year) => sum + (yearlyData?.[year]?.incomeData.monthlyData.etpCount[0] || 0), 0))}
                       </TableCell>
-                    ))}
-                    <TableCell className="font-bold">
-                      {formatNumber(years.reduce((sum, year) => sum + (yearlyData?.[year]?.incomeData.monthlyData.etpCount[0] || 0), 0))}
-                    </TableCell>
-                  </TableRow>
+                    </TableRow>
+                  )}
                   <TableRow>
                     <TableCell className="font-medium">Revenue (€)</TableCell>
                     {years.map((year) => (

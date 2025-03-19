@@ -32,6 +32,9 @@ export interface Expense {
   formula?: "Amount" | "Income %" | "Expense %"
   formulaPercentage?: number
   formulaExpenseId?: string
+  year?: number
+  years?: Set<number>
+  originalId?: string
 }
 
 export interface ExpenseData {
@@ -524,9 +527,18 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
     return expenses.reduce((total, expense) => total + expense.monthlyAmount.reduce((sum, amount) => sum + amount, 0), 0)
   }
 
+  // Fonction pour obtenir la clé unique d'une dépense
+  const getExpenseUniqueKey = (expense: Expense) => {
+    const match = expense.name.match(/^\[([^\]]+)\]\s*(.+)$/)
+    const entityName = match ? match[1] : ''
+    const baseName = match ? match[2] : expense.name
+    return `${entityName}-${baseName}`
+  }
+
+  // Modifier la fonction calculateGroupYearlyTotal
   const calculateGroupYearlyTotal = (group: string, year: number, expenses: Expense[]) => {
     return yearlyData?.[year]?.expenseData.expenses
-      .filter(expense => expenses.some(e => e.id === expense.id))
+      .filter(yearExpense => expenses.some(e => getExpenseUniqueKey(yearExpense) === getExpenseUniqueKey(e)))
       .reduce((sum, expense) => sum + expense.monthlyAmount.reduce((monthSum, amount) => monthSum + amount, 0), 0) || 0
   }
 
@@ -602,7 +614,47 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
 
   // Grouper les dépenses par groupe
   const groupedExpenses = React.useMemo(() => {
-    const groups = filteredExpenses.reduce((acc, expense) => {
+    // En vue "Per Year", on collecte toutes les dépenses de toutes les années
+    const allExpenses = viewMode === "year" && yearlyData
+      ? Object.entries(yearlyData).flatMap(([year, yearData]) =>
+        yearData.expenseData.expenses.map(expense => ({
+          ...expense,
+          year: parseInt(year),
+          id: `${expense.id}-${year}` // Créer un ID unique en combinant l'ID de la dépense avec l'année
+        }))
+      )
+      : filteredExpenses
+
+    // Créer un Map pour regrouper les dépenses par leur identifiant unique (nom + entité)
+    const uniqueExpenses = new Map()
+
+    if (viewMode === "year") {
+      allExpenses.forEach(expense => {
+        // Extraire le nom de base (sans le préfixe d'entité)
+        const match = expense.name.match(/^\[([^\]]+)\]\s*(.+)$/)
+        const entityName = match ? match[1] : ''
+        const baseName = match ? match[2] : expense.name
+        const uniqueKey = `${entityName}-${baseName}`
+
+        if (!uniqueExpenses.has(uniqueKey)) {
+          uniqueExpenses.set(uniqueKey, {
+            ...expense,
+            originalId: expense.id.split('-')[0], // Garder l'ID original sans l'année
+            name: expense.name, // Garder le nom complet avec le préfixe d'entité
+            years: new Set([expense.year])
+          })
+        } else {
+          // Ajouter l'année à l'ensemble des années pour cette dépense
+          uniqueExpenses.get(uniqueKey).years.add(expense.year)
+        }
+      })
+    }
+
+    const expensesToGroup = viewMode === "year"
+      ? Array.from(uniqueExpenses.values())
+      : allExpenses
+
+    const groups = expensesToGroup.reduce((acc, expense) => {
       if (!acc[expense.group]) {
         acc[expense.group] = []
       }
@@ -611,11 +663,35 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
     }, {} as Record<string, Expense[]>)
 
     // Trier les groupes selon l'ordre défini dans data.groups
-    return (data.groups || ["Non trié"]).map(group => ({
-      group,
-      expenses: groups[group] || []
-    }))
-  }, [filteredExpenses, data.groups])
+    return (data.groups || ["Non trié"])
+      .map(group => ({
+        group,
+        expenses: groups[group] || []
+      }))
+      .filter(({ expenses }) => {
+        // En vue globale, on garde tous les groupes qui ont des dépenses
+        if (isGlobalView) return expenses.length > 0
+        // Sinon, on filtre les groupes vides ou avec des montants à 0
+        return expenses.some(expense =>
+          expense.monthlyAmount.some(amount => amount !== 0)
+        )
+      })
+  }, [filteredExpenses, data.groups, isGlobalView, viewMode, yearlyData])
+
+  // Fonction pour extraire l'ID original de la dépense (sans l'année)
+  const getOriginalExpenseId = (expenseId: string) => {
+    // Si l'ID contient déjà l'année (format id-année), on extrait l'ID original
+    if (expenseId.includes('-')) {
+      return expenseId.split('-')[0]
+    }
+    // Sinon on retourne l'ID tel quel
+    return expenseId
+  }
+
+  // Fonction pour extraire l'année de l'ID de la dépense
+  const getExpenseYear = (expenseId: string) => {
+    return parseInt(expenseId.split('-').pop() || '')
+  }
 
   const handleDuplicateClick = (expense: Expense) => {
     setExpenseToDuplicate(expense)
@@ -942,19 +1018,29 @@ export function ExpenseTable({ data, onChange, isReadOnly = false, isGlobalView 
                               </TableCell>
                             ))
                           ) : (
-                            years.map((year) => (
-                              <TableCell key={year} className="min-w-[120px]">
-                                <div className="px-2 py-1 rounded-md bg-muted/50">
-                                  {yearlyData?.[year]?.expenseData.expenses.find(e => e.id === expense.id)?.monthlyAmount.reduce((sum, amount) => sum + amount, 0)?.toLocaleString("fr-FR") || 0}
-                                </div>
-                              </TableCell>
-                            ))
+                            years.map((year) => {
+                              const yearExpense = yearlyData?.[year]?.expenseData.expenses.find(
+                                e => getExpenseUniqueKey(e) === getExpenseUniqueKey(expense)
+                              )
+                              return (
+                                <TableCell key={year} className="min-w-[120px]">
+                                  <div className="px-2 py-1 rounded-md bg-muted/50">
+                                    {yearExpense?.monthlyAmount.reduce((sum, amount) => sum + amount, 0).toLocaleString("fr-FR") || 0}
+                                  </div>
+                                </TableCell>
+                              )
+                            })
                           )}
                           <TableCell className="font-bold">
                             {viewMode === "month" ? (
                               expense.monthlyAmount.reduce((sum, amount) => sum + amount, 0).toLocaleString("fr-FR")
                             ) : (
-                              years.reduce((sum, year) => sum + (yearlyData?.[year]?.expenseData.expenses.find(e => e.id === expense.id)?.monthlyAmount.reduce((sum, amount) => sum + amount, 0) || 0), 0).toLocaleString("fr-FR")
+                              years.reduce((sum, year) => {
+                                const yearExpense = yearlyData?.[year]?.expenseData.expenses.find(
+                                  e => getExpenseUniqueKey(e) === getExpenseUniqueKey(expense)
+                                )
+                                return sum + (yearExpense?.monthlyAmount.reduce((sum, amount) => sum + amount, 0) || 0)
+                              }, 0).toLocaleString("fr-FR")
                             )}
                           </TableCell>
                           {!isReadOnly && (

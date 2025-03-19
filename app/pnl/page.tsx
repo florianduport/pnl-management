@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { Save, Calendar, CalendarDays, MoreVertical, Download, Upload, History } from "lucide-react"
+import Link from "next/link"
 
 import { EntitySelector, type Entity } from "@/components/entity-selector"
 import { YearSelector } from "@/components/year-selector"
@@ -349,6 +350,7 @@ export default function PnLPage() {
 
       // Initialize global expense data with all categories from sub-entities
       const allCategories = new Set<string>()
+      const allGroups = new Set<string>()
       const globalExpenses: Expense[] = []
 
       // Sum up all data from sub-entities
@@ -393,8 +395,13 @@ export default function PnLPage() {
         totalEtpCount += entityTotalEtp
         totalEtpValue += entityTotalEtp * entity.incomeData.etpRate
 
-        // Collect all categories
+        // Collect all categories and groups
         entity.expenseData.categories.forEach((category) => allCategories.add(category))
+        if (entity.expenseData.groups) {
+          entity.expenseData.groups.forEach((group) => allGroups.add(group))
+        } else {
+          allGroups.add("Non trié")
+        }
 
         // Add all expenses with entity name prefix
         entity.expenseData.expenses.forEach((expense) => {
@@ -413,7 +420,7 @@ export default function PnLPage() {
       const globalExpenseData: ExpenseData = {
         expenses: globalExpenses,
         categories: Array.from(allCategories),
-        groups: ["Non trié"],
+        groups: Array.from(allGroups),
       }
 
       return {
@@ -429,36 +436,104 @@ export default function PnLPage() {
   const calculateYearlyData = useCallback(() => {
     if (!currentScenario || !scenarioData[currentScenario.id]) return null
 
-    const years = Array.from({ length: 16 }, (_, i) => 2020 + i) // Génère un tableau de 2020 à 2035
+    const years = Array.from({ length: 16 }, (_, i) => 2020 + i)
     const yearlyData: Record<number, { incomeData: IncomeData; expenseData: ExpenseData }> = {}
 
     years.forEach(year => {
       const yearStr = year.toString()
-      const entityData = scenarioData[currentScenario.id].entityData[selectedEntity.value]?.years[yearStr]
 
-      if (entityData) {
+      if (isGlobalView) {
+        // Pour la vue globale, on agrège les données de toutes les entités
+        const subEntities = scenarioData[currentScenario.id].entities
+          .filter((entity) => entity.value !== "global")
+          .map((entity) => entity.value)
+
+        const globalIncomeData: IncomeData = {
+          etpRate: 0,
+          monthlyData: {
+            etpCount: Array(12).fill(0),
+            revenue: Array(12).fill(0),
+          },
+        }
+
+        const allCategories = new Set<string>()
+        const allGroups = new Set<string>()
+        const globalExpenses: Expense[] = []
+
+        let totalEtpCount = 0
+        let totalEtpValue = 0
+
+        subEntities.forEach((entityKey) => {
+          const entityData = scenarioData[currentScenario.id].entityData[entityKey]?.years[yearStr]
+          if (entityData) {
+            // Agréger les revenus et ETP
+            for (let i = 0; i < 12; i++) {
+              globalIncomeData.monthlyData.etpCount[i] += entityData.incomeData.monthlyData.etpCount[i]
+              globalIncomeData.monthlyData.revenue[i] += entityData.incomeData.monthlyData.revenue[i]
+            }
+
+            // Calculer la moyenne pondérée du taux ETP
+            const entityTotalEtp = entityData.incomeData.monthlyData.etpCount.reduce((sum, count) => sum + count, 0)
+            totalEtpCount += entityTotalEtp
+            totalEtpValue += entityTotalEtp * entityData.incomeData.etpRate
+
+            // Collecter les catégories et groupes
+            entityData.expenseData.categories.forEach((category) => allCategories.add(category))
+            if (entityData.expenseData.groups) {
+              entityData.expenseData.groups.forEach((group) => allGroups.add(group))
+            } else {
+              allGroups.add("Non trié")
+            }
+
+            // Ajouter les dépenses avec le préfixe de l'entité
+            entityData.expenseData.expenses.forEach((expense) => {
+              globalExpenses.push({
+                ...expense,
+                id: `${entityKey}-${expense.id}`,
+                name: `[${entityKey}] ${expense.name}`,
+              })
+            })
+          }
+        })
+
+        // Calculer le taux ETP moyen pondéré
+        globalIncomeData.etpRate = totalEtpCount > 0 ? Math.round(totalEtpValue / totalEtpCount) : 0
+
         yearlyData[year] = {
-          incomeData: {
-            etpRate: entityData.incomeData.etpRate,
-            monthlyData: {
-              etpCount: Array(12).fill(Math.max(...entityData.incomeData.monthlyData.etpCount)),
-              revenue: Array(12).fill(entityData.incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0) / 12),
-            },
-          },
+          incomeData: globalIncomeData,
           expenseData: {
-            expenses: entityData.expenseData.expenses.map(expense => ({
-              ...expense,
-              monthlyAmount: Array(12).fill(expense.monthlyAmount.reduce((sum, amount) => sum + amount, 0) / 12),
-            })),
-            categories: entityData.expenseData.categories,
-            groups: entityData.expenseData.groups,
+            expenses: globalExpenses,
+            categories: Array.from(allCategories),
+            groups: Array.from(allGroups),
           },
+        }
+      } else {
+        // Pour une entité spécifique, on garde la logique existante
+        const entityData = scenarioData[currentScenario.id].entityData[selectedEntity.value]?.years[yearStr]
+        if (entityData) {
+          yearlyData[year] = {
+            incomeData: {
+              etpRate: entityData.incomeData.etpRate,
+              monthlyData: {
+                etpCount: Array(12).fill(Math.max(...entityData.incomeData.monthlyData.etpCount)),
+                revenue: Array(12).fill(entityData.incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0) / 12),
+              },
+            },
+            expenseData: {
+              expenses: entityData.expenseData.expenses.map(expense => ({
+                ...expense,
+                monthlyAmount: Array(12).fill(expense.monthlyAmount.reduce((sum, amount) => sum + amount, 0) / 12),
+              })),
+              categories: entityData.expenseData.categories,
+              groups: entityData.expenseData.groups,
+            },
+          }
         }
       }
     })
 
     return yearlyData
-  }, [currentScenario, scenarioData, selectedEntity])
+  }, [currentScenario, scenarioData, selectedEntity, isGlobalView])
 
   // Effects
   useEffect(() => {
@@ -1005,7 +1080,9 @@ export default function PnLPage() {
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
         <div className="container flex h-16 items-center justify-between py-4">
-          <h1 className="text-xl font-bold">PnL Management</h1>
+          <Link href="/" className="text-xl font-bold hover:underline">
+            PnL Management
+          </Link>
           <div className="flex items-center gap-4">
             <ScenarioSelector
               scenarios={scenarios}
@@ -1089,6 +1166,7 @@ export default function PnLPage() {
               onYearChange={handleYearChange}
               onYearDuplicate={handleYearDuplicate}
               disabled={viewMode === "year"}
+              showDuplicateButton={selectedEntity.value !== "global"}
             />
           </div>
         </div>

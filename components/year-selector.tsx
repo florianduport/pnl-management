@@ -29,9 +29,10 @@ interface YearSelectorProps {
   onYearChange: (year: number) => void
   onYearDuplicate?: (sourceYear: number, targetYear: number) => void
   disabled?: boolean
+  showDuplicateButton?: boolean
 }
 
-export function YearSelector({ onYearChange, onYearDuplicate, disabled = false }: YearSelectorProps) {
+export function YearSelector({ onYearChange, onYearDuplicate, disabled = false, showDuplicateButton = true }: YearSelectorProps) {
   const currentYear = 2025
   const minYear = 2020
   const maxYear = 2035
@@ -98,7 +99,7 @@ export function YearSelector({ onYearChange, onYearDuplicate, disabled = false }
           ))}
         </SelectContent>
       </Select>
-      {onYearDuplicate && selectedYear && (
+      {showDuplicateButton && onYearDuplicate && selectedYear && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="icon">
