@@ -511,6 +511,20 @@ export default function PnLPage() {
       scenarios,
       scenarioData,
     })
+
+    // Créer une version après la sauvegarde
+    try {
+      const response = await fetch("/api/db/versions/create", {
+        method: "POST",
+      })
+
+      if (!response.ok) {
+        throw new Error("Erreur lors de la création de la version")
+      }
+    } catch (error) {
+      console.error("Erreur lors de la création de la version:", error)
+    }
+
     setHasUnsavedChanges(false)
   }
 
