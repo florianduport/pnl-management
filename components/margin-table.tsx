@@ -18,43 +18,91 @@ export function MarginTable({ incomeData, expenseData, viewMode = "month", yearl
 
   const calculateMonthlyMargin = (month: number) => {
     const revenue = incomeData.monthlyData.revenue[month] || 0
+    const customIncomes = incomeData.incomes?.reduce((sum, income) => {
+      if (income.formula === "Per ETP") {
+        return sum + ((income.monthlyAmount[month] || 0) * (income.etpRate || 0))
+      }
+      return sum + (income.monthlyAmount[month] || 0)
+    }, 0) || 0
+    const totalRevenue = revenue + customIncomes
     const expenses = expenseData.expenses.reduce((total, expense) => {
       return total + (expense.monthlyAmount[month] || 0)
     }, 0)
 
-    return revenue - expenses
+    return totalRevenue - expenses
   }
 
   const calculateMonthlyMarginPercentage = (month: number) => {
     const revenue = incomeData.monthlyData.revenue[month] || 0
+    const customIncomes = incomeData.incomes?.reduce((sum, income) => {
+      if (income.formula === "Per ETP") {
+        return sum + ((income.monthlyAmount[month] || 0) * (income.etpRate || 0))
+      }
+      return sum + (income.monthlyAmount[month] || 0)
+    }, 0) || 0
+    const totalRevenue = revenue + customIncomes
     const margin = calculateMonthlyMargin(month)
 
-    if (revenue === 0) return 0
-    return (margin / revenue) * 100
+    if (totalRevenue === 0) return 0
+    return (margin / totalRevenue) * 100
   }
 
   const calculateYearlyMargin = (year: number) => {
     const revenue = yearlyData?.[year]?.incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0) || 0
+    const customIncomes = yearlyData?.[year]?.incomeData.incomes?.reduce((sum, income) => {
+      if (income.formula === "Per ETP") {
+        return sum + income.monthlyAmount.reduce((monthSum, amount) =>
+          monthSum + ((amount || 0) * (income.etpRate || 0)), 0)
+      }
+      return sum + income.monthlyAmount.reduce((monthSum, amount) => monthSum + (amount || 0), 0)
+    }, 0) || 0
+    const totalRevenue = revenue + customIncomes
     const expenses = yearlyData?.[year]?.expenseData.expenses.reduce((total, expense) => {
       return total + expense.monthlyAmount.reduce((sum, amount) => sum + amount, 0)
     }, 0) || 0
 
-    return revenue - expenses
+    return totalRevenue - expenses
   }
 
   const calculateYearlyMarginPercentage = (year: number) => {
     const revenue = yearlyData?.[year]?.incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0) || 0
+    const customIncomes = yearlyData?.[year]?.incomeData.incomes?.reduce((sum, income) => {
+      if (income.formula === "Per ETP") {
+        return sum + income.monthlyAmount.reduce((monthSum, amount) =>
+          monthSum + ((amount || 0) * (income.etpRate || 0)), 0)
+      }
+      return sum + income.monthlyAmount.reduce((monthSum, amount) => monthSum + (amount || 0), 0)
+    }, 0) || 0
+    const totalRevenue = revenue + customIncomes
     const margin = calculateYearlyMargin(year)
 
-    if (revenue === 0) return 0
-    return (margin / revenue) * 100
+    if (totalRevenue === 0) return 0
+    return (margin / totalRevenue) * 100
   }
 
   const calculateTotalRevenue = () => {
     if (viewMode === "month") {
-      return incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0)
+      const revenue = incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0)
+      const customIncomes = incomeData.incomes?.reduce((sum, income) => {
+        if (income.formula === "Per ETP") {
+          return sum + income.monthlyAmount.reduce((monthSum, amount) =>
+            monthSum + ((amount || 0) * (income.etpRate || 0)), 0)
+        }
+        return sum + income.monthlyAmount.reduce((monthSum, amount) => monthSum + (amount || 0), 0)
+      }, 0) || 0
+      return revenue + customIncomes
     } else {
-      return years.reduce((sum, year) => sum + (yearlyData?.[year]?.incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0) || 0), 0)
+      return years.reduce((sum, year) => {
+        const revenue = yearlyData?.[year]?.incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0) || 0
+        const customIncomes = yearlyData?.[year]?.incomeData.incomes?.reduce((sum, income) => {
+          if (income.formula === "Per ETP") {
+            return sum + income.monthlyAmount.reduce((monthSum, amount) =>
+              monthSum + ((amount || 0) * (income.etpRate || 0)), 0)
+          }
+          return sum + income.monthlyAmount.reduce((monthSum, amount) => monthSum + (amount || 0), 0)
+        }, 0) || 0
+        return sum + revenue + customIncomes
+      }, 0)
     }
   }
 

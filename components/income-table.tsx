@@ -1,18 +1,43 @@
 "use client"
 
 import * as React from "react"
-import { Edit2, Save } from "lucide-react"
+import { Edit2, Save, Plus, X, MoreVertical, ChevronRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { ExpenseData } from "./expense-table"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 const formatNumber = (value: number) => {
   return Number.isInteger(value) ? value.toString() : value.toFixed(1)
+}
+
+export interface Income {
+  id: string
+  name: string
+  categories: string[]
+  group: string
+  isRecurring: boolean
+  monthlyAmount: number[]
+  formula: "Amount" | "Per ETP" | "Retention"
+  etpRate?: number
+  retentionRate?: number
+  previousYearIncomeId?: string
+  year?: number
+  years?: Set<number>
 }
 
 export interface IncomeData {
@@ -21,6 +46,9 @@ export interface IncomeData {
     etpCount: number[]
     revenue: number[]
   }
+  incomes?: Income[]
+  categories?: string[]
+  groups?: string[]
 }
 
 type EntityType = "École" | "Groupe" | "ESN"
@@ -32,16 +60,97 @@ interface IncomeTableProps {
   entityType?: EntityType
   viewMode?: "month" | "year"
   yearlyData?: Record<number, { incomeData: IncomeData; expenseData: ExpenseData }> | null
+  onIncomeDuplicate?: (income: Income, sourceYear: number, targetYear: number) => void
+  selectedYear?: number
 }
 
-export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "Groupe", viewMode = "month", yearlyData = null }: IncomeTableProps) {
+export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "Groupe", viewMode = "month", yearlyData = null, onIncomeDuplicate, selectedYear = 2025 }: IncomeTableProps) {
+  // Stopper immédiatement si on est en vue annuelle et rendez un composant simplifié
+  if ((viewMode as "month" | "year") === "year") {
+    return (
+      <YearlyIncomeTable
+        data={data}
+        entityType={entityType}
+        yearlyData={yearlyData}
+        isReadOnly={isReadOnly}
+      />
+    )
+  }
+
+  // Le reste du composant pour le mode "month" seulement
   const [isEditingRate, setIsEditingRate] = React.useState(false)
   const [etpRate, setEtpRate] = React.useState(data.etpRate)
+  const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [newIncomeName, setNewIncomeName] = React.useState("")
+  const [newIncomeCategory, setNewIncomeCategory] = React.useState<string>("")
+  const [selectedCategories, setSelectedCategories] = React.useState<string[]>([])
+  const [newIncomeAmount, setNewIncomeAmount] = React.useState(0)
+  const [newIncomeIsRecurring, setNewIncomeIsRecurring] = React.useState(true)
+  const [isAddingCategory, setIsAddingCategory] = React.useState(false)
+  const [newCategory, setNewCategory] = React.useState("")
+  const [isAddingGroup, setIsAddingGroup] = React.useState(false)
+  const [newGroup, setNewGroup] = React.useState("")
+  const [selectedGroup, setSelectedGroup] = React.useState<string>("Non trié")
+  const [formErrors, setFormErrors] = React.useState<{
+    name?: string;
+    amount?: string;
+    categories?: string;
+  }>({})
+  const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(new Set())
+  const [newIncomeFormula, setNewIncomeFormula] = React.useState<"Amount" | "Per ETP" | "Retention">("Amount")
+  const [newIncomeEtpRate, setNewIncomeEtpRate] = React.useState(0)
+  const [newIncomeRetentionRate, setNewIncomeRetentionRate] = React.useState(0)
+  const [newIncomePreviousYearId, setNewIncomePreviousYearId] = React.useState<string>("")
+  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
+  const [incomeToDelete, setIncomeToDelete] = React.useState<string | null>(null)
+  const [editDialogOpen, setEditDialogOpen] = React.useState(false)
+  const [incomeToEdit, setIncomeToEdit] = React.useState<Income | null>(null)
+  const [editIncomeName, setEditIncomeName] = React.useState("")
+  const [editIncomeGroup, setEditIncomeGroup] = React.useState("")
+  const [editIncomeFormula, setEditIncomeFormula] = React.useState<"Amount" | "Per ETP" | "Retention">("Amount")
+  const [editIncomeAmount, setEditIncomeAmount] = React.useState(0)
+  const [editIncomeEtpRate, setEditIncomeEtpRate] = React.useState(0)
+  const [editIncomeIsRecurring, setEditIncomeIsRecurring] = React.useState(true)
+  const [editSelectedCategories, setEditSelectedCategories] = React.useState<string[]>([])
+  const [isEditingGroup, setIsEditingGroup] = React.useState(false)
+  const [editNewGroup, setEditNewGroup] = React.useState("")
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = React.useState(false)
+  const [incomeToDuplicate, setIncomeToDuplicate] = React.useState<Income | null>(null)
+  const [sourceYear, setSourceYear] = React.useState<number>(2025)
+  const [targetYear, setTargetYear] = React.useState<number>(2025)
+
+  // Initialize categories and groups if not present
+  React.useEffect(() => {
+    if (!data.categories) {
+      onChange({
+        ...data,
+        categories: ["HR", "Facilities", "Marketing", "IT", "Operations", "Education", "R&D"]
+      })
+    }
+    if (!data.groups) {
+      onChange({
+        ...data,
+        groups: ["Non trié"]
+      })
+    }
+    if (!data.incomes) {
+      onChange({
+        ...data,
+        incomes: []
+      })
+    }
+  }, [data, onChange])
+
+  // Mettre à jour les années initiales en fonction de la prop selectedYear
+  React.useEffect(() => {
+    setSourceYear(selectedYear)
+    setTargetYear(selectedYear)
+  }, [selectedYear])
 
   const getEntityLabel = () => {
     switch (entityType) {
       case "École":
-        return "Étudiant"
+        return "Étudiants"
       default:
         return "ETP"
     }
@@ -92,49 +201,927 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
 
   const years = Array.from({ length: 16 }, (_, i) => 2020 + i)
 
+  const validateForm = () => {
+    const errors: typeof formErrors = {}
+
+    if (!newIncomeName.trim()) {
+      errors.name = "Le nom est requis"
+    }
+
+    if (!newIncomeAmount || newIncomeAmount <= 0) {
+      errors.amount = "Le montant doit être supérieur à 0"
+    }
+
+    if (selectedCategories.length === 0) {
+      errors.categories = "Au moins une catégorie doit être sélectionnée"
+    }
+
+    if (newIncomeFormula === "Retention") {
+      if (!newIncomeRetentionRate || newIncomeRetentionRate <= 0 || newIncomeRetentionRate > 100) {
+        errors.amount = "Le taux de rétention doit être compris entre 0 et 100"
+      }
+      if (!newIncomePreviousYearId) {
+        errors.amount = "Un revenu de l'année précédente doit être sélectionné"
+      }
+    }
+
+    setFormErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
+  const addIncome = () => {
+    if (!validateForm()) return
+
+    // S'assurer que le groupe est défini
+    const groupToUse = selectedGroup || "Non trié"
+
+    // S'assurer que le groupe existe dans la liste des groupes
+    if (!data.groups?.includes(groupToUse)) {
+      onChange({
+        ...data,
+        groups: [...(data.groups || []), groupToUse]
+      })
+    }
+
+    const newIncome: Income = {
+      id: Date.now().toString(),
+      name: newIncomeName.trim(),
+      categories: selectedCategories,
+      group: groupToUse,
+      isRecurring: newIncomeIsRecurring,
+      monthlyAmount: newIncomeIsRecurring ? Array(12).fill(newIncomeAmount) : [newIncomeAmount, ...Array(11).fill(0)],
+      formula: newIncomeFormula,
+      etpRate: newIncomeFormula === "Per ETP" ? newIncomeEtpRate : undefined,
+      retentionRate: newIncomeFormula === "Retention" ? newIncomeRetentionRate : undefined,
+      previousYearIncomeId: newIncomeFormula === "Retention" ? newIncomePreviousYearId : undefined
+    }
+
+    // Mettre à jour les données
+    onChange({
+      ...data,
+      incomes: [...(data.incomes || []), newIncome],
+    })
+
+    // Reset form
+    setNewIncomeName("")
+    setNewIncomeAmount(0)
+    setNewIncomeIsRecurring(true)
+    setNewIncomeCategory("")
+    setSelectedCategories([])
+    setSelectedGroup("Non trié")
+    setNewIncomeFormula("Amount")
+    setNewIncomeEtpRate(0)
+    setNewIncomeRetentionRate(0)
+    setNewIncomePreviousYearId("")
+    setFormErrors({})
+    setDialogOpen(false)
+  }
+
+  const addCategory = () => {
+    if (!newCategory || data.categories?.includes(newCategory)) return
+
+    onChange({
+      ...data,
+      categories: [...(data.categories || []), newCategory],
+    })
+
+    setSelectedCategories(prev => [...prev, newCategory])
+    setNewIncomeCategory(newCategory)
+    setNewCategory("")
+    setIsAddingCategory(false)
+  }
+
+  const removeCategory = (categoryToRemove: string) => {
+    setSelectedCategories(prev => prev.filter(cat => cat !== categoryToRemove))
+  }
+
+  const addGroup = () => {
+    if (!newGroup || data.groups?.includes(newGroup)) return
+
+    onChange({
+      ...data,
+      groups: [...(data.groups || []), newGroup],
+    })
+
+    setSelectedGroup(newGroup)
+    setNewGroup("")
+    setIsAddingGroup(false)
+  }
+
+  const calculateMonthlyTotal = (month: number) => {
+    const customIncomes = data.incomes?.reduce((sum, income) => {
+      if (income.formula === "Per ETP") {
+        return sum + ((income.monthlyAmount[month] || 0) * (income.etpRate || 0))
+      } else if (income.formula === "Retention") {
+        // Trouver le revenu de l'année précédente
+        const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
+        if (!previousYearData?.incomes?.length) return sum;
+
+        const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
+        if (!previousYearIncome) return sum;
+
+        const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
+        const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
+
+        // Calculer le montant en utilisant le etpRate du revenu précédent si c'est un revenu Per ETP
+        const amount = previousYearIncome.formula === "Per ETP"
+          ? retentionAmount * (previousYearIncome.etpRate || 0)
+          : retentionAmount;
+
+        return sum + amount;
+      }
+      return sum + (income.monthlyAmount[month] || 0)
+    }, 0) || 0
+    return {
+      amount: customIncomes,
+      count: (data.incomes?.reduce((sum, income) => {
+        if (income.formula === "Per ETP") {
+          return sum + (income.monthlyAmount[month] || 0)
+        } else if (income.formula === "Retention") {
+          // Trouver le revenu de l'année précédente
+          const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
+          if (!previousYearData?.incomes?.length) return sum;
+
+          const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
+          if (!previousYearIncome) return sum;
+
+          const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
+          const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
+
+          return sum + retentionAmount;
+        }
+        return sum
+      }, 0) || 0)
+    }
+  }
+
+  const calculateTotal = () => {
+    const customIncomesTotal = data.incomes?.reduce((sum, income) => {
+      if (income.formula === "Per ETP") {
+        return sum + income.monthlyAmount.reduce((monthSum, amount, index) =>
+          monthSum + ((amount || 0) * (income.etpRate || 0)), 0)
+      } else if (income.formula === "Retention") {
+        // Trouver le revenu de l'année précédente
+        const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
+        if (!previousYearData?.incomes?.length) return sum;
+
+        const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
+        if (!previousYearIncome) return sum;
+
+        // Calculer la valeur de rétention pour chaque mois
+        return sum + income.monthlyAmount.reduce((monthSum, amount, month) => {
+          const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
+          const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
+          const finalAmount = previousYearIncome.formula === "Per ETP"
+            ? retentionAmount * (previousYearIncome.etpRate || 0)
+            : retentionAmount;
+          return monthSum + finalAmount;
+        }, 0)
+      }
+      return sum + income.monthlyAmount.reduce((monthSum, amount) => monthSum + (amount || 0), 0)
+    }, 0) || 0
+    return {
+      amount: customIncomesTotal,
+      count: (data.incomes?.reduce((sum, income) => {
+        if (income.formula === "Per ETP") {
+          return sum + income.monthlyAmount.reduce((sum, amount) => sum + (amount || 0), 0)
+        } else if (income.formula === "Retention") {
+          // Trouver le revenu de l'année précédente
+          const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
+          if (!previousYearData?.incomes?.length) return sum;
+
+          const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
+          if (!previousYearIncome) return sum;
+
+          // Calculer la valeur de rétention pour chaque mois
+          return sum + income.monthlyAmount.reduce((monthSum, amount, month) => {
+            const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
+            const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
+            return monthSum + retentionAmount;
+          }, 0)
+        }
+        return sum
+      }, 0) || 0)
+    }
+  }
+
+  const handleIncomeAmountChange = (incomeId: string, month: number, amount: number) => {
+    if (!data.incomes) return
+
+    const updatedIncomes = data.incomes.map((income) => {
+      if (income.id === incomeId) {
+        const newAmounts = [...income.monthlyAmount]
+        newAmounts[month] = amount
+
+        // Si c'est un revenu récurrent, mettre à jour tous les mois avec la même valeur
+        if (income.isRecurring && month === 0) {
+          for (let i = 0; i < 12; i++) {
+            newAmounts[i] = amount
+          }
+        }
+
+        return { ...income, monthlyAmount: newAmounts }
+      }
+      return income
+    })
+
+    onChange({
+      ...data,
+      incomes: updatedIncomes,
+    })
+  }
+
+  const handleIncomeEtpRateChange = (incomeId: string, etpRate: number) => {
+    if (!data.incomes) return
+
+    const updatedIncomes = data.incomes.map((income) => {
+      if (income.id === incomeId) {
+        return { ...income, etpRate }
+      }
+      return income
+    })
+
+    onChange({
+      ...data,
+      incomes: updatedIncomes,
+    })
+  }
+
+  const toggleIncomeRecurring = (incomeId: string, isRecurring: boolean) => {
+    if (!data.incomes) return
+
+    const updatedIncomes = data.incomes.map((income) => {
+      if (income.id === incomeId) {
+        let monthlyAmount = [...income.monthlyAmount]
+        if (income.isRecurring && !isRecurring) {
+          // Garder les valeurs actuelles lors du passage de récurrent à non récurrent
+        } else if (!income.isRecurring && isRecurring) {
+          // Si on passe de non récurrent à récurrent, mettre tous les mois à la valeur du premier mois
+          monthlyAmount = Array(12).fill(monthlyAmount[0])
+        }
+        return {
+          ...income,
+          isRecurring,
+          monthlyAmount,
+        }
+      }
+      return income
+    })
+
+    onChange({
+      ...data,
+      incomes: updatedIncomes,
+    })
+  }
+
+  // Grouper les revenus par groupe
+  const groupedIncomes = React.useMemo(() => {
+    const allIncomes = data.incomes || []
+    const groups = allIncomes.reduce((acc, income) => {
+      if (!acc[income.group]) {
+        acc[income.group] = []
+      }
+      acc[income.group].push(income)
+      return acc
+    }, {} as Record<string, Income[]>)
+
+    // Trier les groupes selon l'ordre défini dans data.groups
+    return (data.groups || ["Non trié"])
+      .map(group => ({
+        group,
+        incomes: groups[group] || []
+      }))
+      .filter(({ incomes }) => incomes.length > 0)
+  }, [data.incomes, data.groups])
+
+  const toggleGroup = (group: string) => {
+    setExpandedGroups(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(group)) {
+        newSet.delete(group)
+      } else {
+        newSet.add(group)
+      }
+      return newSet
+    })
+  }
+
+  const calculateGroupTotal = (group: string, incomes: Income[], month?: number) => {
+    if (month !== undefined) {
+      return {
+        amount: incomes.reduce((total, income) => {
+          if (income.formula === "Per ETP") {
+            return total + ((income.monthlyAmount[month] || 0) * (income.etpRate || 0))
+          } else if (income.formula === "Retention") {
+            // Trouver le revenu de l'année précédente
+            const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
+            if (!previousYearData?.incomes?.length) return total;
+
+            const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
+            if (!previousYearIncome) return total;
+
+            const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
+            const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
+
+            // Calculer le montant en utilisant le etpRate du revenu précédent si c'est un revenu Per ETP
+            const amount = previousYearIncome.formula === "Per ETP"
+              ? retentionAmount * (previousYearIncome.etpRate || 0)
+              : retentionAmount;
+
+            return total + amount;
+          }
+          return total + (income.monthlyAmount[month] || 0)
+        }, 0),
+        count: incomes.reduce((total, income) => {
+          if (income.formula === "Per ETP") {
+            return total + (income.monthlyAmount[month] || 0)
+          } else if (income.formula === "Retention") {
+            // Trouver le revenu de l'année précédente
+            const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
+            if (!previousYearData?.incomes?.length) return total;
+
+            const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
+            if (!previousYearIncome) return total;
+
+            const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
+            const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
+
+            return total + retentionAmount;
+          }
+          return total
+        }, 0)
+      }
+    }
+    return {
+      amount: incomes.reduce((total, income) => {
+        if (income.formula === "Per ETP") {
+          return total + income.monthlyAmount.reduce((sum, amount, index) =>
+            sum + ((amount || 0) * (income.etpRate || 0)), 0)
+        } else if (income.formula === "Retention") {
+          // Trouver le revenu de l'année précédente
+          const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
+          if (!previousYearData?.incomes?.length) return total;
+
+          const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
+          if (!previousYearIncome) return total;
+
+          // Calculer la valeur de rétention pour chaque mois
+          return total + income.monthlyAmount.reduce((monthSum, amount, month) => {
+            const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
+            const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
+            const finalAmount = previousYearIncome.formula === "Per ETP"
+              ? retentionAmount * (previousYearIncome.etpRate || 0)
+              : retentionAmount;
+            return monthSum + finalAmount;
+          }, 0)
+        }
+        return total + income.monthlyAmount.reduce((sum, amount) => sum + (amount || 0), 0)
+      }, 0),
+      count: incomes.reduce((total, income) => {
+        if (income.formula === "Per ETP") {
+          return total + income.monthlyAmount.reduce((sum, amount) => sum + (amount || 0), 0)
+        } else if (income.formula === "Retention") {
+          // Trouver le revenu de l'année précédente
+          const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
+          if (!previousYearData?.incomes?.length) return total;
+
+          const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
+          if (!previousYearIncome) return total;
+
+          // Calculer la valeur de rétention pour chaque mois
+          return total + income.monthlyAmount.reduce((monthSum, amount, month) => {
+            const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
+            const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
+            return monthSum + retentionAmount;
+          }, 0)
+        }
+        return total
+      }, 0)
+    }
+  }
+
+  const renderGroupRow = (group: string, incomes: Income[]) => {
+    const isExpanded = expandedGroups.has(group)
+    const groupTotal = calculateGroupTotal(group, incomes)
+
+    return (
+      <TableRow key={`group-${group}`} className="bg-muted/50">
+        <TableCell colSpan={1} className="font-bold">
+          <div className="flex items-center gap-2">
+            <button onClick={() => toggleGroup(group)} className="hover:opacity-70">
+              {isExpanded ? "▼" : "▶"}
+            </button>
+            {group}
+          </div>
+        </TableCell>
+        <TableCell />
+        <TableCell />
+        {months.map((_, index) => {
+          const monthlyTotal = calculateGroupTotal(group, incomes, index)
+          return (
+            <TableCell key={index} className="font-bold">
+              {isExpanded ? "" : (
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">
+                    {formatNumber(monthlyTotal.count)} {getEntityLabel()}
+                  </div>
+                  <div>{monthlyTotal.amount.toLocaleString("fr-FR")} €</div>
+                </div>
+              )}
+            </TableCell>
+          )
+        })}
+        <TableCell className="font-bold">
+          {isExpanded ? "" : (
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground">
+                {formatNumber(groupTotal.count)} {getEntityLabel()}
+              </div>
+              <div>{groupTotal.amount.toLocaleString("fr-FR")} €</div>
+            </div>
+          )}
+        </TableCell>
+      </TableRow>
+    )
+  }
+
+  const renderGroupSubtotalRow = (group: string, incomes: Income[]) => {
+    const groupTotal = calculateGroupTotal(group, incomes)
+
+    return (
+      <TableRow key={`subtotal-${group}`} className="bg-muted/30">
+        <TableCell colSpan={1} className="font-bold">
+          Sous-total {group}
+        </TableCell>
+        <TableCell />
+        <TableCell />
+        {months.map((_, index) => {
+          const monthlyTotal = calculateGroupTotal(group, incomes, index)
+          return (
+            <TableCell key={index} className="font-bold">
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">
+                  {formatNumber(monthlyTotal.count)} {getEntityLabel()}
+                </div>
+                <div>{monthlyTotal.amount.toLocaleString("fr-FR")} €</div>
+              </div>
+            </TableCell>
+          )
+        })}
+        <TableCell className="font-bold">
+          <div>
+            {groupTotal.amount.toLocaleString("fr-FR")} €
+          </div>
+        </TableCell>
+      </TableRow>
+    )
+  }
+
+  const handleDeleteClick = (incomeId: string) => {
+    setIncomeToDelete(incomeId)
+    setDeleteDialogOpen(true)
+  }
+
+  const confirmDelete = () => {
+    if (incomeToDelete && data.incomes) {
+      onChange({
+        ...data,
+        incomes: data.incomes.filter((income) => income.id !== incomeToDelete),
+      })
+      setDeleteDialogOpen(false)
+      setIncomeToDelete(null)
+    }
+  }
+
+  const openEditDialog = (income: Income) => {
+    setIncomeToEdit(income)
+    setEditIncomeName(income.name)
+    setEditIncomeGroup(income.group)
+    setEditIncomeFormula(income.formula)
+    setEditIncomeAmount(income.monthlyAmount[0] || 0)
+    setEditIncomeEtpRate(income.etpRate || 0)
+    setEditIncomeIsRecurring(income.isRecurring)
+    setEditSelectedCategories(income.categories)
+    setEditDialogOpen(true)
+  }
+
+  const saveEdit = () => {
+    if (!incomeToEdit || !data.incomes) return
+
+    const updatedIncomes = data.incomes.map((income) => {
+      if (income.id === incomeToEdit.id) {
+        // Préserver les montants mensuels existants
+        const updatedMonthlyAmount = [...income.monthlyAmount]
+
+        // Si c'est un revenu récurrent, mettre à jour tous les mois avec la nouvelle valeur
+        if (editIncomeIsRecurring) {
+          for (let i = 0; i < 12; i++) {
+            updatedMonthlyAmount[i] = editIncomeAmount
+          }
+        } else {
+          // Sinon, mettre à jour uniquement le premier mois
+          updatedMonthlyAmount[0] = editIncomeAmount
+        }
+
+        return {
+          ...income,
+          name: editIncomeName,
+          group: editIncomeGroup,
+          categories: editSelectedCategories,
+          formula: editIncomeFormula,
+          isRecurring: editIncomeIsRecurring,
+          monthlyAmount: updatedMonthlyAmount,
+          etpRate: editIncomeFormula === "Per ETP" ? editIncomeEtpRate : undefined,
+          retentionRate: editIncomeFormula === "Retention" ? income.retentionRate : undefined,
+          previousYearIncomeId: editIncomeFormula === "Retention" ? income.previousYearIncomeId : undefined
+        }
+      }
+      return income
+    })
+
+    onChange({
+      ...data,
+      incomes: updatedIncomes,
+    })
+
+    setEditDialogOpen(false)
+    setIncomeToEdit(null)
+  }
+
+  const addGroupInEdit = () => {
+    if (!editNewGroup || data.groups?.includes(editNewGroup)) return
+
+    onChange({
+      ...data,
+      groups: [...(data.groups || []), editNewGroup],
+    })
+
+    setEditIncomeGroup(editNewGroup)
+    setEditNewGroup("")
+    setIsEditingGroup(false)
+  }
+
+  const handleDuplicateClick = (income: Income) => {
+    setIncomeToDuplicate(income)
+    setSourceYear(2025) // Année par défaut
+    setTargetYear(2025) // Année par défaut
+    setDuplicateDialogOpen(true)
+  }
+
+  const confirmDuplicate = () => {
+    if (!incomeToDuplicate || !onIncomeDuplicate) return
+    onIncomeDuplicate(incomeToDuplicate, sourceYear, targetYear)
+    setDuplicateDialogOpen(false)
+    setIncomeToDuplicate(null)
+  }
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Income</CardTitle>
-        {isReadOnly && (
-          <div className="text-sm text-muted-foreground bg-muted px-3 py-1 rounded-md">Global view (read-only)</div>
-        )}
+        <div className="flex items-center gap-2">
+          {isReadOnly || (viewMode as "month" | "year") === "year" ? (
+            <div className="text-sm text-muted-foreground bg-muted px-3 py-1 rounded-md">
+              {(viewMode as "month" | "year") === "year" ? "Annual view (read-only)" : "Global view (read-only)"}
+            </div>
+          ) : (
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Income
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Ajouter un revenu</DialogTitle>
+                  <DialogDescription>
+                    Remplissez les informations pour ajouter un nouveau revenu.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="income-name" className="text-right">
+                      Nom
+                    </Label>
+                    <div className="col-span-3">
+                      <Input
+                        id="income-name"
+                        value={newIncomeName}
+                        onChange={(e) => setNewIncomeName(e.target.value)}
+                        className={formErrors.name ? "border-red-500" : ""}
+                      />
+                      {formErrors.name && (
+                        <p className="text-sm text-red-500 mt-1">{formErrors.name}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="income-group" className="text-right">
+                      Groupe
+                    </Label>
+                    {isAddingGroup ? (
+                      <div className="col-span-3 flex gap-2">
+                        <Input
+                          id="new-group"
+                          value={newGroup}
+                          onChange={(e) => setNewGroup(e.target.value)}
+                          className="flex-1"
+                          placeholder="Nouveau nom de groupe"
+                        />
+                        <Button size="sm" onClick={addGroup}>
+                          <Save className="h-4 w-4" />
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setIsAddingGroup(false)}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="col-span-3 flex gap-2">
+                        <Select
+                          value={selectedGroup}
+                          onValueChange={setSelectedGroup}
+                        >
+                          <SelectTrigger className="h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(data.groups || ["Non trié"]).map((group) => (
+                              <SelectItem key={group} value={group}>
+                                {group}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button size="sm" variant="outline" onClick={() => setIsAddingGroup(true)}>
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="income-category" className="text-right">
+                      Catégories
+                    </Label>
+                    <div className="col-span-3">
+                      {isAddingCategory ? (
+                        <div className="flex gap-2">
+                          <Input
+                            id="new-category"
+                            value={newCategory}
+                            onChange={(e) => setNewCategory(e.target.value)}
+                            className="flex-1"
+                            placeholder="Nouveau nom de catégorie"
+                          />
+                          <Button size="sm" onClick={addCategory}>
+                            <Save className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setIsAddingCategory(false)}>
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          <Select
+                            value={newIncomeCategory}
+                            onValueChange={(value) => {
+                              if (typeof value === "string") {
+                                setNewIncomeCategory(value)
+                                setSelectedCategories(prev =>
+                                  prev.includes(value)
+                                    ? prev.filter(cat => cat !== value)
+                                    : [...prev, value]
+                                )
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="flex-1">
+                              <SelectValue placeholder="Sélectionner des catégories" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {data.categories?.map((category) => (
+                                <SelectItem key={category} value={category}>
+                                  {category}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button size="sm" variant="outline" onClick={() => setIsAddingCategory(true)}>
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+                      {selectedCategories.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {selectedCategories.map((category) => (
+                            <div
+                              key={category}
+                              className="flex items-center gap-1 bg-secondary px-2 py-1 rounded-md text-sm"
+                            >
+                              {category}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-4 w-4 p-0"
+                                onClick={() => removeCategory(category)}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {formErrors.categories && (
+                        <p className="text-sm text-red-500 mt-1">{formErrors.categories}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="income-formula" className="text-right">
+                      Formule
+                    </Label>
+                    <div className="col-span-3">
+                      <Select
+                        value={newIncomeFormula}
+                        onValueChange={(value: "Amount" | "Per ETP" | "Retention") => setNewIncomeFormula(value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Amount">Montant fixe</SelectItem>
+                          <SelectItem value="Per ETP">Par ETP</SelectItem>
+                          <SelectItem value="Retention">Rétention</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  {newIncomeFormula === "Amount" ? (
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="income-amount" className="text-right">
+                        Montant (€)
+                      </Label>
+                      <div className="col-span-3">
+                        <Input
+                          id="income-amount"
+                          type="number"
+                          value={newIncomeAmount || ""}
+                          onChange={(e) => setNewIncomeAmount(Number(e.target.value))}
+                          className={formErrors.amount ? "border-red-500" : ""}
+                        />
+                        {formErrors.amount && (
+                          <p className="text-sm text-red-500 mt-1">{formErrors.amount}</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : newIncomeFormula === "Per ETP" ? (
+                    <>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="income-etp-rate" className="text-right">
+                          CA par ETP (€)
+                        </Label>
+                        <div className="col-span-3">
+                          <Input
+                            id="income-etp-rate"
+                            type="number"
+                            value={newIncomeEtpRate || ""}
+                            onChange={(e) => setNewIncomeEtpRate(Number(e.target.value))}
+                            className={formErrors.amount ? "border-red-500" : ""}
+                          />
+                          {formErrors.amount && (
+                            <p className="text-sm text-red-500 mt-1">{formErrors.amount}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="income-etp-count" className="text-right">
+                          Nombre d'ETP
+                        </Label>
+                        <div className="col-span-3">
+                          <Input
+                            id="income-etp-count"
+                            type="number"
+                            value={newIncomeAmount || ""}
+                            onChange={(e) => setNewIncomeAmount(Number(e.target.value))}
+                            className={formErrors.amount ? "border-red-500" : ""}
+                            step="0.1"
+                          />
+                          {formErrors.amount && (
+                            <p className="text-sm text-red-500 mt-1">{formErrors.amount}</p>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="income-retention-rate" className="text-right">
+                          Taux de rétention (%)
+                        </Label>
+                        <div className="col-span-3">
+                          <Input
+                            id="income-retention-rate"
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={newIncomeRetentionRate || ""}
+                            onChange={(e) => setNewIncomeRetentionRate(Number(e.target.value))}
+                            className={formErrors.amount ? "border-red-500" : ""}
+                          />
+                          {formErrors.amount && (
+                            <p className="text-sm text-red-500 mt-1">{formErrors.amount}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="previousYearIncome">Revenu année précédente</Label>
+                        <div className="col-span-3 flex items-center gap-2">
+                          <Select
+                            value={newIncomePreviousYearId}
+                            onValueChange={setNewIncomePreviousYearId}
+                          >
+                            <SelectTrigger className="w-[200px]">
+                              <SelectValue placeholder="Sélectionner un revenu" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(() => {
+                                const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
+                                if (!previousYearData?.incomes?.length) {
+                                  return (
+                                    <SelectItem value="no-data" disabled>
+                                      Aucun revenu disponible pour l'année {selectedYear - 1}
+                                    </SelectItem>
+                                  );
+                                }
+                                const etpIncomes = previousYearData.incomes.filter(income => income.formula === "Per ETP");
+                                if (etpIncomes.length === 0) {
+                                  return (
+                                    <SelectItem value="no-data" disabled>
+                                      Aucun revenu de type "Par ETP" disponible pour l'année {selectedYear - 1}
+                                    </SelectItem>
+                                  );
+                                }
+                                return etpIncomes.map((income) => (
+                                  <SelectItem key={income.id} value={income.id}>
+                                    {income.name}
+                                  </SelectItem>
+                                ));
+                              })()}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="income-amount" className="text-right">
+                          Montant (€)
+                        </Label>
+                        <div className="col-span-3">
+                          <Input
+                            id="income-amount"
+                            type="number"
+                            value={newIncomeAmount || ""}
+                            onChange={(e) => setNewIncomeAmount(Number(e.target.value))}
+                            className={formErrors.amount ? "border-red-500" : ""}
+                          />
+                          {formErrors.amount && (
+                            <p className="text-sm text-red-500 mt-1">{formErrors.amount}</p>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label className="text-right">Récurrent</Label>
+                    <div className="flex items-center space-x-2 col-span-3">
+                      <Checkbox
+                        id="income-recurring"
+                        checked={newIncomeIsRecurring}
+                        onCheckedChange={(checked) => setNewIncomeIsRecurring(checked === true)}
+                      />
+                      <Label htmlFor="income-recurring">Appliquer à tous les mois</Label>
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button onClick={addIncome}>Ajouter</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
-        {viewMode !== "year" && (
-          <div className="flex items-center space-x-2 mb-4">
-            <div className="font-medium">CA per {getEntityLabel()}:</div>
-            {isEditingRate && !isReadOnly ? (
-              <>
-                <Input
-                  type="number"
-                  value={etpRate}
-                  onChange={(e) => handleEtpRateChange(e.target.value)}
-                  className="w-32"
-                />
-                <Button size="sm" variant="outline" onClick={saveEtpRate}>
-                  <Save className="h-4 w-4 mr-1" />
-                  Save
-                </Button>
-              </>
-            ) : (
-              <>
-                <div className="font-bold">{etpRate.toLocaleString("fr-FR")} €</div>
-                {!isReadOnly && (
-                  <Button size="sm" variant="ghost" onClick={() => setIsEditingRate(true)}>
-                    <Edit2 className="h-4 w-4" />
-                  </Button>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
         <div className="rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[100px]">Metric</TableHead>
+                {viewMode === "month" && (
+                  <>
+                    <TableHead className="w-[150px]">Categories</TableHead>
+                    <TableHead className="w-[80px]">Recurring</TableHead>
+                  </>
+                )}
                 {viewMode === "month" ? (
                   months.map((month) => (
                     <TableHead key={month} className="min-w-[120px]">{month}</TableHead>
@@ -150,130 +1137,950 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
             <TableBody>
               {viewMode === "month" ? (
                 <>
-                  {isReadOnly ? (
-                    <>
-                      <TableRow>
-                        <TableCell className="font-medium">ETP Count</TableCell>
-                        {months.map((_, index) => (
-                          <TableCell key={index} className="min-w-[120px]">
-                            <div className="px-2 py-1 rounded-md bg-muted/50">
-                              {entityType !== "École" ? formatNumber(data.monthlyData.etpCount[index] || 0) : "0"}
-                            </div>
-                          </TableCell>
-                        ))}
-                        <TableCell className="font-bold">{entityType !== "École" ? formatNumber(avgEtp) : "0"}</TableCell>
-                      </TableRow>
-                      <TableRow>
-                        <TableCell className="font-medium">Student Count</TableCell>
-                        {months.map((_, index) => (
-                          <TableCell key={index} className="min-w-[120px]">
-                            <div className="px-2 py-1 rounded-md bg-muted/50">
-                              {entityType === "École" ? formatNumber(data.monthlyData.etpCount[index] || 0) : "0"}
-                            </div>
-                          </TableCell>
-                        ))}
-                        <TableCell className="font-bold">{entityType === "École" ? formatNumber(avgEtp) : "0"}</TableCell>
-                      </TableRow>
-                    </>
-                  ) : (
-                    <TableRow>
-                      <TableCell className="font-medium">{getEntityLabel()} Count</TableCell>
-                      {months.map((_, index) => (
-                        <TableCell key={index} className="min-w-[120px]">
-                          <Input
-                            type="number"
-                            value={data.monthlyData.etpCount[index] || ""}
-                            onChange={(e) => handleEtpCountChange(index, e.target.value)}
-                            className="w-full h-8"
-                            step="0.1"
-                          />
-                        </TableCell>
-                      ))}
-                      <TableCell className="font-bold">{formatNumber(avgEtp)}</TableCell>
-                    </TableRow>
-                  )}
+                  {groupedIncomes.map(({ group, incomes }) => (
+                    <React.Fragment key={group}>
+                      {renderGroupRow(group, incomes)}
+                      {expandedGroups.has(group) && (
+                        <>
+                          {incomes.map((income: Income) => (
+                            <TableRow key={income.id}>
+                              <TableCell className="font-medium">
+                                <div className="space-y-1">
+                                  {income.name}
+                                  {income.formula === "Retention" && (
+                                    <div className="text-xs text-muted-foreground">
+                                      {income.retentionRate}% de rétention
+                                    </div>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap gap-1">
+                                  {income.categories.map((category) => (
+                                    <div
+                                      key={category}
+                                      className="px-2 py-1 rounded-md bg-secondary text-sm"
+                                    >
+                                      {category}
+                                    </div>
+                                  ))}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {income.formula === "Amount" && (
+                                  <Checkbox
+                                    checked={income.isRecurring}
+                                    onCheckedChange={(checked) => toggleIncomeRecurring(income.id, checked as boolean)}
+                                    disabled={isReadOnly}
+                                  />
+                                )}
+                              </TableCell>
+                              {months.map((_, index) => {
+                                const yearIncome = data.incomes?.find(i => i.id === income.id)
+                                if (!yearIncome) {
+                                  return (
+                                    <TableCell key={index} className="min-w-[120px]">
+                                      <div className="space-y-1">
+                                        <div className="px-2 py-1 rounded-md bg-muted/50">
+                                          0 €
+                                        </div>
+                                      </div>
+                                    </TableCell>
+                                  )
+                                }
+
+                                const yearlyAmount = yearIncome.monthlyAmount[index] || 0
+                                return (
+                                  <TableCell key={index} className="min-w-[120px]">
+                                    <div className="space-y-1">
+                                      {yearIncome.formula === "Per ETP" && (
+                                        <div className="text-xs text-muted-foreground">
+                                          {isReadOnly ? (
+                                            formatNumber(yearlyAmount)
+                                          ) : (
+                                            <Input
+                                              type="number"
+                                              value={yearlyAmount || ""}
+                                              onChange={(e) => handleIncomeAmountChange(income.id, index, Number(e.target.value))}
+                                              className="w-full"
+                                              step="0.1"
+                                            />
+                                          )} {getEntityLabel()}
+                                        </div>
+                                      )}
+                                      {yearIncome.formula === "Retention" && (
+                                        <div className="space-y-1">
+                                          <Input
+                                            type="text"
+                                            value={(() => {
+                                              const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
+                                              if (!previousYearData?.incomes?.length) return "0";
+
+                                              const previousYearIncome = previousYearData.incomes.find(i => i.id === yearIncome.previousYearIncomeId);
+                                              if (!previousYearIncome) return "0";
+
+                                              const previousYearAmount = previousYearIncome.monthlyAmount[index] || 0;
+                                              const retentionAmount = previousYearAmount * (yearIncome.retentionRate || 0) / 100;
+
+                                              return formatNumber(retentionAmount);
+                                            })()}
+                                            readOnly
+                                            className="w-full"
+                                          />
+                                        </div>
+                                      )}
+                                      {yearIncome.formula === "Per ETP" ? (
+                                        <div className="px-2 py-1 rounded-md bg-muted/50">
+                                          {(yearlyAmount * (yearIncome.etpRate || 0)).toLocaleString("fr-FR")} €
+                                        </div>
+                                      ) : yearIncome.formula === "Retention" ? (
+                                        <div className="px-2 py-1 rounded-md bg-muted/50">
+                                          {(() => {
+                                            const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
+                                            if (!previousYearData?.incomes?.length) return "0 €";
+
+                                            const previousYearIncome = previousYearData.incomes.find(i => i.id === yearIncome.previousYearIncomeId);
+                                            if (!previousYearIncome) return "0 €";
+
+                                            const previousYearAmount = previousYearIncome.monthlyAmount[index] || 0;
+                                            const retentionAmount = previousYearAmount * (yearIncome.retentionRate || 0) / 100;
+
+                                            // Calculer le montant en utilisant le etpRate du revenu précédent si c'est un revenu Per ETP
+                                            const amount = previousYearIncome.formula === "Per ETP"
+                                              ? retentionAmount * (previousYearIncome.etpRate || 0)
+                                              : retentionAmount;
+
+                                            return `${amount.toLocaleString("fr-FR")} €`;
+                                          })()}
+                                        </div>
+                                      ) : (
+                                        isReadOnly ? (
+                                          <div className="px-2 py-1 rounded-md bg-muted/50">
+                                            {yearlyAmount.toLocaleString("fr-FR")} €
+                                          </div>
+                                        ) : (
+                                          <Input
+                                            type="number"
+                                            value={yearlyAmount || ""}
+                                            onChange={(e) => handleIncomeAmountChange(income.id, index, Number(e.target.value))}
+                                            className="w-full"
+                                          />
+                                        )
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                )
+                              })}
+                              <TableCell className="font-bold">
+                                {(() => {
+                                  if (income.formula === "Per ETP") {
+                                    return income.monthlyAmount.reduce((sum, monthlyAmount, index) =>
+                                      sum + (monthlyAmount * (income.etpRate || 0)), 0).toLocaleString("fr-FR") + " €"
+                                  } else if (income.formula === "Retention") {
+                                    const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
+                                    if (!previousYearData?.incomes?.length) return "0 €";
+
+                                    const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
+                                    if (!previousYearIncome) return "0 €";
+
+                                    return income.monthlyAmount.reduce((sum, monthlyAmount, index) => {
+                                      const previousYearAmount = previousYearIncome.monthlyAmount[index] || 0;
+                                      const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
+                                      const finalAmount = previousYearIncome.formula === "Per ETP"
+                                        ? retentionAmount * (previousYearIncome.etpRate || 0)
+                                        : retentionAmount;
+                                      return sum + finalAmount;
+                                    }, 0).toLocaleString("fr-FR")
+                                  }
+                                  return income.monthlyAmount.reduce((sum, monthlyAmount) => sum + monthlyAmount, 0).toLocaleString("fr-FR") + " €"
+                                })()}
+                              </TableCell>
+                              {!isReadOnly && (
+                                <TableCell>
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button variant="ghost" size="sm">
+                                        <MoreVertical className="h-4 w-4" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuItem onClick={() => openEditDialog(income)}>
+                                        Modifier
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => handleDuplicateClick(income)}>
+                                        Dupliquer
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => handleDeleteClick(income.id)} className="text-destructive">
+                                        Supprimer
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </TableCell>
+                              )}
+                            </TableRow>
+                          ))}
+                          {renderGroupSubtotalRow(group, incomes)}
+                        </>
+                      )}
+                    </React.Fragment>
+                  ))}
                   <TableRow>
-                    <TableCell className="font-medium">Revenue (€)</TableCell>
+                    <TableCell className="font-bold">Total Revenue (€)</TableCell>
+                    <TableCell />
+                    <TableCell />
                     {months.map((_, index) => (
-                      <TableCell key={index} className="min-w-[120px]">
-                        <div className="px-2 py-1 rounded-md bg-muted/50">
-                          {data.monthlyData.revenue[index]?.toLocaleString("fr-FR") || 0}
+                      <TableCell key={index} className="min-w-[120px] font-bold">
+                        <div className="space-y-1">
+                          <div className="text-xs text-muted-foreground">
+                            {formatNumber(calculateMonthlyTotal(index).count)} {getEntityLabel()}
+                          </div>
+                          <div>{calculateMonthlyTotal(index).amount.toLocaleString("fr-FR")} €</div>
                         </div>
                       </TableCell>
                     ))}
-                    <TableCell className="font-bold">{totalRevenue.toLocaleString("fr-FR")}</TableCell>
+                    <TableCell className="font-bold">
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">
+                          {formatNumber(calculateTotal().count)} {getEntityLabel()}
+                        </div>
+                        <div>{calculateTotal().amount.toLocaleString("fr-FR")} €</div>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 </>
               ) : (
-                <>
-                  {isReadOnly && (
+                <TableRow>
+                  <TableCell className="font-bold">Total Revenue (€)</TableCell>
+                  <TableCell />
+                  <TableCell />
+                  {months.map((_, index) => (
+                    <TableCell key={index} className="min-w-[120px] font-bold">
+                      {calculateMonthlyTotal(index).amount.toLocaleString("fr-FR")}
+                    </TableCell>
+                  ))}
+                  <TableCell className="font-bold">{calculateTotal().amount.toLocaleString("fr-FR")}</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmer la suppression</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p>Êtes-vous sûr de vouloir supprimer ce revenu ?</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              Non
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete}>
+              Oui
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Modifier le revenu</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-income-name" className="text-right">
+                Nom
+              </Label>
+              <Input
+                id="edit-income-name"
+                value={editIncomeName}
+                onChange={(e) => setEditIncomeName(e.target.value)}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-income-group" className="text-right">
+                Groupe
+              </Label>
+              {isEditingGroup ? (
+                <div className="col-span-3 flex gap-2">
+                  <Input
+                    id="edit-new-group"
+                    value={editNewGroup}
+                    onChange={(e) => setEditNewGroup(e.target.value)}
+                    className="flex-1"
+                    placeholder="Nouveau groupe"
+                  />
+                  <Button size="sm" onClick={addGroupInEdit}>
+                    <Save className="h-4 w-4" />
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setIsEditingGroup(false)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="col-span-3 flex gap-2">
+                  <Select
+                    value={editIncomeGroup}
+                    onValueChange={setEditIncomeGroup}
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(data.groups || ["Non trié"]).map((group) => (
+                        <SelectItem key={group} value={group}>
+                          {group}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button size="sm" variant="outline" onClick={() => setIsEditingGroup(true)}>
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-income-formula" className="text-right">
+                Formule
+              </Label>
+              <div className="col-span-3">
+                <Select
+                  value={editIncomeFormula}
+                  onValueChange={(value: "Amount" | "Per ETP" | "Retention") => setEditIncomeFormula(value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Amount">Montant fixe</SelectItem>
+                    <SelectItem value="Per ETP">Par ETP</SelectItem>
+                    <SelectItem value="Retention">Rétention</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {editIncomeFormula === "Amount" ? (
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="edit-income-amount" className="text-right">
+                  Montant (€)
+                </Label>
+                <Input
+                  id="edit-income-amount"
+                  type="number"
+                  value={editIncomeAmount || ""}
+                  onChange={(e) => setEditIncomeAmount(Number(e.target.value))}
+                  className="col-span-3"
+                />
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="edit-income-etp-rate" className="text-right">
+                    CA par ETP (€)
+                  </Label>
+                  <Input
+                    id="edit-income-etp-rate"
+                    type="number"
+                    value={editIncomeEtpRate || ""}
+                    onChange={(e) => setEditIncomeEtpRate(Number(e.target.value))}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="edit-income-etp-count" className="text-right">
+                    Nombre d'ETP
+                  </Label>
+                  <Input
+                    id="edit-income-etp-count"
+                    type="number"
+                    value={editIncomeAmount || ""}
+                    onChange={(e) => setEditIncomeAmount(Number(e.target.value))}
+                    className="col-span-3"
+                    step="0.1"
+                  />
+                </div>
+              </>
+            )}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label className="text-right">Récurrent</Label>
+              <div className="flex items-center space-x-2 col-span-3">
+                <Checkbox
+                  id="edit-income-recurring"
+                  checked={editIncomeIsRecurring}
+                  onCheckedChange={(checked) => setEditIncomeIsRecurring(checked === true)}
+                />
+                <Label htmlFor="edit-income-recurring">Appliquer à tous les mois</Label>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={saveEdit}>Enregistrer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={duplicateDialogOpen} onOpenChange={setDuplicateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Dupliquer le revenu</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Année source</Label>
+                <Select value={sourceYear.toString()} onValueChange={(value) => setSourceYear(Number(value))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {years.map((year) => (
+                      <SelectItem key={year} value={year.toString()}>
+                        {year}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Année cible</Label>
+                <Select value={targetYear.toString()} onValueChange={(value) => setTargetYear(Number(value))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {years.map((year) => (
+                      <SelectItem key={year} value={year.toString()}>
+                        {year}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={confirmDuplicate}>Dupliquer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  )
+}
+
+// Composant séparé pour la vue annuelle, sans aucune interaction avec le state parent
+function YearlyIncomeTable({ data, entityType, yearlyData, isReadOnly }: {
+  data: IncomeData
+  entityType?: EntityType
+  yearlyData?: Record<number, { incomeData: IncomeData; expenseData: ExpenseData }> | null
+  isReadOnly: boolean
+}) {
+  const years = Array.from({ length: 16 }, (_, i) => 2020 + i)
+  const yearlyViewData = React.useMemo(() => {
+    return years.map(year => {
+      const yearData = yearlyData?.[year]?.incomeData
+      return {
+        year,
+        incomes: yearData?.incomes || [],
+        amount: 0,
+        count: 0
+      }
+    })
+  }, [years, yearlyData])
+
+  const yearlyTotals = React.useMemo(() => {
+    return yearlyViewData.map(yearData => {
+      const totalAmount = (yearData.incomes?.reduce((acc, income) => {
+        const yearlyAmount = income.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+        if (income.formula === "Per ETP") {
+          return acc + (yearlyAmount * (income.etpRate || 0))
+        } else if (income.formula === "Retention") {
+          const previousYearData = yearlyData?.[yearData.year - 1]?.incomeData
+          if (previousYearData?.incomes) {
+            const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId)
+            if (previousYearIncome) {
+              const previousYearAmount = previousYearIncome.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+              const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100
+              return acc + (previousYearIncome.formula === "Per ETP"
+                ? retentionAmount * (previousYearIncome.etpRate || 0)
+                : retentionAmount)
+            }
+          }
+        }
+        return acc + yearlyAmount
+      }, 0) || 0)
+
+      const totalCount = (yearData.incomes?.reduce((acc, income) => {
+        if (income.formula === "Per ETP") {
+          return acc + income.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+        } else if (income.formula === "Retention") {
+          const previousYearData = yearlyData?.[yearData.year - 1]?.incomeData
+          if (previousYearData?.incomes) {
+            const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId)
+            if (previousYearIncome) {
+              const previousYearAmount = previousYearIncome.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+              return acc + (previousYearAmount * (income.retentionRate || 0) / 100)
+            }
+          }
+        }
+        return acc
+      }, 0) || 0)
+
+      return {
+        year: yearData.year,
+        amount: totalAmount,
+        count: totalCount
+      }
+    })
+  }, [yearlyViewData, yearlyData])
+
+  const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(new Set())
+
+  // Fonction pour obtenir le label de l'entité
+  const getEntityLabel = () => {
+    switch (entityType) {
+      case "École":
+        return "Étudiants"
+      default:
+        return "ETP"
+    }
+  }
+
+  // Grouper les revenus par groupe
+  const groupedIncomes = React.useMemo(() => {
+    const allIncomes = yearlyViewData.reduce((acc, yearData) => {
+      yearData.incomes.forEach(income => {
+        if (!acc[income.group]) {
+          acc[income.group] = {}
+        }
+        if (!acc[income.group][yearData.year]) {
+          acc[income.group][yearData.year] = {
+            year: yearData.year,
+            amount: 0,
+            count: 0,
+            incomes: []
+          }
+        }
+        acc[income.group][yearData.year].incomes.push(income)
+      })
+      return acc
+    }, {} as Record<string, Record<number, { year: number; amount: number; count: number; incomes: Income[] }>>)
+
+    // Récupérer tous les incomes uniques de toutes les années
+    const uniqueIncomes = new Map<string, Income>()
+    yearlyViewData.forEach(yearData => {
+      yearData.incomes.forEach(income => {
+        if (!uniqueIncomes.has(income.id)) {
+          uniqueIncomes.set(income.id, income)
+        }
+      })
+    })
+
+    return Object.entries(allIncomes).map(([group, yearData]) => ({
+      group,
+      yearData,
+      uniqueIncomes: Array.from(uniqueIncomes.values()).filter(income => income.group === group)
+    }))
+  }, [yearlyViewData, yearlyData])
+
+  const toggleGroup = (group: string) => {
+    setExpandedGroups(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(group)) {
+        newSet.delete(group)
+      } else {
+        newSet.add(group)
+      }
+      return newSet
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>Income</CardTitle>
+        <div className="flex items-center gap-2">
+          <div className="text-sm text-muted-foreground bg-muted px-3 py-1 rounded-md">
+            Annual view (read-only)
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[100px]">Metric</TableHead>
+                {years.map((year) => (
+                  <TableHead key={year} className="min-w-[120px]">{year}</TableHead>
+                ))}
+                <TableHead>Total</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {groupedIncomes.map(({ group, yearData, uniqueIncomes }) => (
+                <React.Fragment key={group}>
+                  <TableRow className="bg-muted/50">
+                    <TableCell className="font-bold">
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => toggleGroup(group)} className="hover:opacity-70">
+                          {expandedGroups.has(group) ? "▼" : "▶"}
+                        </button>
+                        {group}
+                      </div>
+                    </TableCell>
+                    {years.map((year) => {
+                      const currentYearData = yearData[year]
+                      const yearTotal = currentYearData?.incomes?.reduce((acc, income) => {
+                        const yearlyAmount = income.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                        if (income.formula === "Per ETP") {
+                          return acc + (yearlyAmount * (income.etpRate || 0))
+                        } else if (income.formula === "Retention") {
+                          const previousYearData = yearlyData?.[year - 1]?.incomeData
+                          if (previousYearData?.incomes) {
+                            const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId)
+                            if (previousYearIncome) {
+                              const previousYearAmount = previousYearIncome.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                              const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100
+                              return acc + (previousYearIncome.formula === "Per ETP"
+                                ? retentionAmount * (previousYearIncome.etpRate || 0)
+                                : retentionAmount)
+                            }
+                          }
+                        }
+                        return acc + yearlyAmount
+                      }, 0) || 0
+
+                      const yearCount = currentYearData?.incomes?.reduce((acc, income) => {
+                        if (income.formula === "Per ETP") {
+                          return acc + income.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                        } else if (income.formula === "Retention") {
+                          const previousYearData = yearlyData?.[year - 1]?.incomeData
+                          if (previousYearData?.incomes) {
+                            const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId)
+                            if (previousYearIncome) {
+                              const previousYearAmount = previousYearIncome.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                              return acc + (previousYearAmount * (income.retentionRate || 0) / 100)
+                            }
+                          }
+                        }
+                        return acc
+                      }, 0) || 0
+
+                      return (
+                        <TableCell key={year} className="min-w-[120px]">
+                          {!expandedGroups.has(group) && (
+                            <div className="space-y-1">
+                              <div className="text-xs text-muted-foreground">
+                                {formatNumber(yearCount)} {getEntityLabel()}
+                              </div>
+                              <div className="px-2 py-1 rounded-md bg-muted/50">
+                                {yearTotal.toLocaleString("fr-FR")} €
+                              </div>
+                            </div>
+                          )}
+                        </TableCell>
+                      )
+                    })}
+                    <TableCell className="font-bold">
+                      {!expandedGroups.has(group) && (
+                        <div className="space-y-1">
+                          <div className="text-xs text-muted-foreground">
+                            {formatNumber(years.reduce((acc, year) => {
+                              const currentYearData = yearData[year]
+                              return acc + (currentYearData?.incomes?.reduce((yearAcc, income) => {
+                                if (income.formula === "Per ETP") {
+                                  return yearAcc + income.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                                } else if (income.formula === "Retention") {
+                                  const previousYearData = yearlyData?.[year - 1]?.incomeData
+                                  if (previousYearData?.incomes) {
+                                    const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId)
+                                    if (previousYearIncome) {
+                                      const previousYearAmount = previousYearIncome.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                                      return yearAcc + (previousYearAmount * (income.retentionRate || 0) / 100)
+                                    }
+                                  }
+                                }
+                                return yearAcc
+                              }, 0) || 0)
+                            }, 0))} {getEntityLabel()}
+                          </div>
+                          <div>
+                            {years.reduce((acc, year) => {
+                              const currentYearData = yearData[year]
+                              return acc + (currentYearData?.incomes?.reduce((yearAcc, income) => {
+                                const yearlyAmount = income.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                                if (income.formula === "Per ETP") {
+                                  return yearAcc + (yearlyAmount * (income.etpRate || 0))
+                                } else if (income.formula === "Retention") {
+                                  const previousYearData = yearlyData?.[year - 1]?.incomeData
+                                  if (previousYearData?.incomes) {
+                                    const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId)
+                                    if (previousYearIncome) {
+                                      const previousYearAmount = previousYearIncome.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                                      const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100
+                                      return yearAcc + (previousYearIncome.formula === "Per ETP"
+                                        ? retentionAmount * (previousYearIncome.etpRate || 0)
+                                        : retentionAmount)
+                                    }
+                                  }
+                                }
+                                return yearAcc + yearlyAmount
+                              }, 0) || 0)
+                            }, 0).toLocaleString("fr-FR")} €
+                          </div>
+                        </div>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                  {expandedGroups.has(group) && (
                     <>
-                      <TableRow>
-                        <TableCell className="font-medium">ETP Count</TableCell>
-                        {years.map((year) => (
-                          <TableCell key={year} className="min-w-[120px]">
-                            <div className="px-2 py-1 rounded-md bg-muted/50">
-                              {entityType !== "École" ? formatNumber(yearlyData?.[year]?.incomeData.monthlyData.etpCount[0] || 0) : "0"}
+                      {uniqueIncomes.map((baseIncome: Income) => (
+                        <TableRow key={baseIncome.id}>
+                          <TableCell className="font-medium">
+                            <div className="space-y-1">
+                              {baseIncome.name}
+                              {baseIncome.formula === "Retention" && (
+                                <div className="text-xs text-muted-foreground">
+                                  {baseIncome.retentionRate}% de rétention
+                                </div>
+                              )}
                             </div>
                           </TableCell>
-                        ))}
+                          {years.map((year) => {
+                            const currentYearData = yearData[year]
+                            const currentIncome = currentYearData?.incomes.find(i => i.id === baseIncome.id)
+
+                            if (!currentIncome) {
+                              return (
+                                <TableCell key={year} className="min-w-[120px]">
+                                  <div className="px-2 py-1 rounded-md bg-muted/50">
+                                    0 €
+                                  </div>
+                                </TableCell>
+                              )
+                            }
+
+                            const yearlyAmount = currentIncome.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                            let calculatedAmount = 0
+                            let calculatedCount = 0
+
+                            if (currentIncome.formula === "Per ETP") {
+                              calculatedAmount = yearlyAmount * (currentIncome.etpRate || 0)
+                              calculatedCount = yearlyAmount
+                            } else if (currentIncome.formula === "Retention") {
+                              const previousYearData = yearlyData?.[year - 1]?.incomeData
+                              if (previousYearData?.incomes) {
+                                const previousYearIncome = previousYearData.incomes.find(i => i.id === currentIncome.previousYearIncomeId)
+                                if (previousYearIncome) {
+                                  const previousYearAmount = previousYearIncome.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                                  const retentionAmount = previousYearAmount * (currentIncome.retentionRate || 0) / 100
+                                  calculatedAmount = previousYearIncome.formula === "Per ETP"
+                                    ? retentionAmount * (previousYearIncome.etpRate || 0)
+                                    : retentionAmount
+                                  calculatedCount = retentionAmount
+                                }
+                              }
+                            } else {
+                              calculatedAmount = yearlyAmount
+                            }
+
+                            return (
+                              <TableCell key={year} className="min-w-[120px]">
+                                <div className="space-y-1">
+                                  {(currentIncome.formula === "Per ETP" || currentIncome.formula === "Retention") && (
+                                    <div className="text-xs text-muted-foreground">
+                                      {formatNumber(calculatedCount)} {getEntityLabel()}
+                                    </div>
+                                  )}
+                                  <div className="px-2 py-1 rounded-md bg-muted/50">
+                                    {calculatedAmount.toLocaleString("fr-FR")} €
+                                  </div>
+                                </div>
+                              </TableCell>
+                            )
+                          })}
+                          <TableCell className="font-bold">
+                            <div className="space-y-1">
+                              {(baseIncome.formula === "Per ETP" || baseIncome.formula === "Retention") && (
+                                <div className="text-xs text-muted-foreground">
+                                  {formatNumber(Object.values(yearData).reduce((acc, data) => {
+                                    const currentIncome = data?.incomes?.find(i => i.id === baseIncome.id)
+                                    if (!currentIncome) return acc
+                                    if (currentIncome.formula === "Per ETP") {
+                                      return acc + currentIncome.monthlyAmount.reduce((acc, a) => acc + a, 0)
+                                    } else if (currentIncome.formula === "Retention") {
+                                      const previousYearData = yearlyData?.[data.year - 1]?.incomeData
+                                      if (previousYearData?.incomes) {
+                                        const previousYearIncome = previousYearData.incomes.find(i => i.id === currentIncome.previousYearIncomeId)
+                                        if (previousYearIncome) {
+                                          const previousYearAmount = previousYearIncome.monthlyAmount.reduce((acc, a) => acc + a, 0)
+                                          return acc + (previousYearAmount * (currentIncome.retentionRate || 0) / 100)
+                                        }
+                                      }
+                                    }
+                                    return acc
+                                  }, 0))} {getEntityLabel()}
+                                </div>
+                              )}
+                              <div>
+                                {Object.values(yearData).reduce((acc, data) => {
+                                  const currentIncome = data?.incomes?.find(i => i.id === baseIncome.id)
+                                  if (!currentIncome) return acc
+                                  const yearlyAmount = currentIncome.monthlyAmount.reduce((acc, a) => acc + a, 0)
+                                  if (currentIncome.formula === "Per ETP") {
+                                    return acc + (yearlyAmount * (currentIncome.etpRate || 0))
+                                  } else if (currentIncome.formula === "Retention") {
+                                    const previousYearData = yearlyData?.[data.year - 1]?.incomeData
+                                    if (previousYearData?.incomes) {
+                                      const previousYearIncome = previousYearData.incomes.find(i => i.id === currentIncome.previousYearIncomeId)
+                                      if (previousYearIncome) {
+                                        const previousYearAmount = previousYearIncome.monthlyAmount.reduce((acc, a) => acc + a, 0)
+                                        const retentionAmount = previousYearAmount * (currentIncome.retentionRate || 0) / 100
+                                        return acc + (previousYearIncome.formula === "Per ETP"
+                                          ? retentionAmount * (previousYearIncome.etpRate || 0)
+                                          : retentionAmount)
+                                      }
+                                    }
+                                  }
+                                  return acc + yearlyAmount
+                                }, 0).toLocaleString("fr-FR")} €
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow className="bg-muted/30">
                         <TableCell className="font-bold">
-                          {formatNumber(years.reduce((sum, year) => sum + (entityType !== "École" ? (yearlyData?.[year]?.incomeData.monthlyData.etpCount[0] || 0) : 0), 0))}
+                          Sous-total {group}
                         </TableCell>
-                      </TableRow>
-                      <TableRow>
-                        <TableCell className="font-medium">Student Count</TableCell>
                         {years.map((year) => {
-                          const yearData = yearlyData?.[year]?.incomeData.monthlyData.etpCount || []
-                          const maxStudentCount = yearData.length > 0 ? Math.max(...yearData) : 0
+                          const currentYearData = yearData[year]
+                          const yearTotal = currentYearData?.incomes?.reduce((acc, income) => {
+                            const yearlyAmount = income.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                            if (income.formula === "Per ETP") {
+                              return acc + (yearlyAmount * (income.etpRate || 0))
+                            } else if (income.formula === "Retention") {
+                              const previousYearData = yearlyData?.[year - 1]?.incomeData
+                              if (previousYearData?.incomes) {
+                                const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId)
+                                if (previousYearIncome) {
+                                  const previousYearAmount = previousYearIncome.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                                  const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100
+                                  return acc + (previousYearIncome.formula === "Per ETP"
+                                    ? retentionAmount * (previousYearIncome.etpRate || 0)
+                                    : retentionAmount)
+                                }
+                              }
+                            }
+                            return acc + yearlyAmount
+                          }, 0) || 0
+
+                          const yearCount = currentYearData?.incomes?.reduce((acc, income) => {
+                            if (income.formula === "Per ETP") {
+                              return acc + income.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                            } else if (income.formula === "Retention") {
+                              const previousYearData = yearlyData?.[year - 1]?.incomeData
+                              if (previousYearData?.incomes) {
+                                const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId)
+                                if (previousYearIncome) {
+                                  const previousYearAmount = previousYearIncome.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                                  return acc + (previousYearAmount * (income.retentionRate || 0) / 100)
+                                }
+                              }
+                            }
+                            return acc
+                          }, 0) || 0
+
                           return (
                             <TableCell key={year} className="min-w-[120px]">
-                              <div className="px-2 py-1 rounded-md bg-muted/50">
-                                {formatNumber(maxStudentCount)}
+                              <div className="space-y-1">
+                                <div className="text-xs text-muted-foreground">
+                                  {formatNumber(yearCount)} {getEntityLabel()}
+                                </div>
+                                <div className="px-2 py-1 rounded-md bg-muted/50">
+                                  {yearTotal.toLocaleString("fr-FR")} €
+                                </div>
                               </div>
                             </TableCell>
                           )
                         })}
                         <TableCell className="font-bold">
-                          {formatNumber(years.reduce((sum, year) => {
-                            const yearData = yearlyData?.[year]?.incomeData.monthlyData.etpCount || []
-                            const maxStudentCount = yearData.length > 0 ? Math.max(...yearData) : 0
-                            return sum + maxStudentCount
-                          }, 0))}
+                          <div className="space-y-1">
+                            <div className="text-xs text-muted-foreground">
+                              {formatNumber(years.reduce((acc, year) => {
+                                const currentYearData = yearData[year]
+                                return acc + (currentYearData?.incomes?.reduce((yearAcc, income) => {
+                                  if (income.formula === "Per ETP") {
+                                    return yearAcc + income.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                                  } else if (income.formula === "Retention") {
+                                    const previousYearData = yearlyData?.[year - 1]?.incomeData
+                                    if (previousYearData?.incomes) {
+                                      const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId)
+                                      if (previousYearIncome) {
+                                        const previousYearAmount = previousYearIncome.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                                        return yearAcc + (previousYearAmount * (income.retentionRate || 0) / 100)
+                                      }
+                                    }
+                                  }
+                                  return yearAcc
+                                }, 0) || 0)
+                              }, 0))} {getEntityLabel()}
+                            </div>
+                            <div>
+                              {years.reduce((acc, year) => {
+                                const currentYearData = yearData[year]
+                                return acc + (currentYearData?.incomes?.reduce((yearAcc, income) => {
+                                  const yearlyAmount = income.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                                  if (income.formula === "Per ETP") {
+                                    return yearAcc + (yearlyAmount * (income.etpRate || 0))
+                                  } else if (income.formula === "Retention") {
+                                    const previousYearData = yearlyData?.[year - 1]?.incomeData
+                                    if (previousYearData?.incomes) {
+                                      const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId)
+                                      if (previousYearIncome) {
+                                        const previousYearAmount = previousYearIncome.monthlyAmount.reduce((acc, amount) => acc + amount, 0)
+                                        const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100
+                                        return yearAcc + (previousYearIncome.formula === "Per ETP"
+                                          ? retentionAmount * (previousYearIncome.etpRate || 0)
+                                          : retentionAmount)
+                                      }
+                                    }
+                                  }
+                                  return yearAcc + yearlyAmount
+                                }, 0) || 0)
+                              }, 0).toLocaleString("fr-FR")} €
+                            </div>
+                          </div>
                         </TableCell>
                       </TableRow>
                     </>
                   )}
-                  {!isReadOnly && (
-                    <TableRow>
-                      <TableCell className="font-medium">{getEntityLabel()} Count</TableCell>
-                      {years.map((year) => (
-                        <TableCell key={year} className="min-w-[120px]">
-                          <div className="px-2 py-1 rounded-md bg-muted/50">
-                            {formatNumber(yearlyData?.[year]?.incomeData.monthlyData.etpCount[0] || 0)}
-                          </div>
-                        </TableCell>
-                      ))}
-                      <TableCell className="font-bold">
-                        {formatNumber(years.reduce((sum, year) => sum + (yearlyData?.[year]?.incomeData.monthlyData.etpCount[0] || 0), 0))}
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  <TableRow>
-                    <TableCell className="font-medium">Revenue (€)</TableCell>
-                    {years.map((year) => (
-                      <TableCell key={year} className="min-w-[120px]">
-                        <div className="px-2 py-1 rounded-md bg-muted/50">
-                          {yearlyData?.[year]?.incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0)?.toLocaleString("fr-FR") || 0}
-                        </div>
-                      </TableCell>
-                    ))}
-                    <TableCell className="font-bold">
-                      {formatNumber(years.reduce((sum, year) => sum + (yearlyData?.[year]?.incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0) || 0), 0))}
-                    </TableCell>
-                  </TableRow>
-                </>
-              )}
+                </React.Fragment>
+              ))}
+              <TableRow>
+                <TableCell className="font-bold">Total Revenue (€)</TableCell>
+                {yearlyTotals.map((total) => (
+                  <TableCell key={total.year} className="font-bold">
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">
+                        {formatNumber(total.count)} {getEntityLabel()}
+                      </div>
+                      <div>{total.amount.toLocaleString("fr-FR")} €</div>
+                    </div>
+                  </TableCell>
+                ))}
+                <TableCell className="font-bold">
+                  <div>
+                    {yearlyTotals.reduce((sum, total) => sum + total.amount, 0).toLocaleString("fr-FR")} €
+                  </div>
+                </TableCell>
+              </TableRow>
             </TableBody>
           </Table>
         </div>
@@ -281,4 +2088,5 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
     </Card>
   )
 }
+
 

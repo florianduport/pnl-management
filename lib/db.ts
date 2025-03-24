@@ -313,6 +313,25 @@ const initialScenarioData: Record<string, ScenarioData> = {
     },
 }
 
+function transformEtpToIncomes(incomeData: { etpRate: number; monthlyData: { etpCount: number[]; revenue: number[] } }, entityId: string) {
+    const hasNonZeroValues = incomeData.monthlyData.etpCount.some(value => value !== 0);
+
+    if (!hasNonZeroValues) {
+        return null;
+    }
+
+    return {
+        id: `etp-revenue-${entityId}`,
+        name: "Revenu ETP",
+        categories: ["HR"],
+        group: "Non trié",
+        isRecurring: true,
+        monthlyAmount: [...incomeData.monthlyData.etpCount],
+        formula: "Per ETP" as const,
+        etpRate: incomeData.etpRate
+    };
+}
+
 class Database {
     private static instance: Database
     private initialized: boolean = false
@@ -327,30 +346,63 @@ class Database {
         return Database.instance
     }
 
+    private transformData(data: DbData): DbData {
+        const transformedData = { ...data }
+
+        // Parcourir tous les scénarios
+        Object.entries(transformedData.scenarioData).forEach(([scenarioId, scenario]) => {
+            // Parcourir toutes les entités
+            Object.entries(scenario.entityData).forEach(([entityId, entity]) => {
+                // Parcourir toutes les années
+                Object.values(entity.years).forEach(yearData => {
+                    // Vérifier si la transformation a déjà été faite
+                    if (yearData.incomeData.incomes?.some(income => income.id === `etp-revenue-${entityId}`)) {
+                        return;
+                    }
+
+                    // Transformer les données ETP en incomes
+                    const etpIncome = transformEtpToIncomes(yearData.incomeData, entityId)
+                    if (etpIncome) {
+                        // Initialiser le tableau incomes s'il n'existe pas
+                        if (!yearData.incomeData.incomes) {
+                            yearData.incomeData.incomes = []
+                        }
+                        // Ajouter l'income ETP
+                        yearData.incomeData.incomes.push(etpIncome)
+
+                        // Mettre à zéro les données ETP après la transformation
+                        yearData.incomeData.monthlyData.etpCount = Array(12).fill(0)
+                        yearData.incomeData.monthlyData.revenue = Array(12).fill(0)
+                    }
+                })
+            })
+        })
+
+        return transformedData
+    }
+
     public async initialize() {
         if (!this.initialized) {
             try {
                 const response = await fetch("/api/db")
-                const data = await response.json()
-                if (Object.keys(data.scenarioData).length === 0) {
-                    // Si la base de données est vide, initialisons-la avec les données par défaut
-                    this.data = {
-                        scenarios: defaultScenarios,
-                        scenarioData: initialScenarioData,
-                    }
-                    await this.saveData(this.data)
-                } else {
-                    this.data = data
+                if (!response.ok) {
+                    throw new Error("Failed to fetch data")
                 }
+                const data = await response.json()
+                this.data = this.transformData(data)
+                this.initialized = true
             } catch (error) {
-                console.error("Erreur lors de l'initialisation de la base de données:", error)
-                // En cas d'erreur, utilisons les données par défaut
+                console.error("Error initializing database:", error)
+                // En cas d'erreur, utiliser les données initiales
                 this.data = {
                     scenarios: defaultScenarios,
-                    scenarioData: initialScenarioData,
+                    scenarioData: this.transformData({
+                        scenarios: defaultScenarios,
+                        scenarioData: initialScenarioData
+                    }).scenarioData
                 }
+                this.initialized = true
             }
-            this.initialized = true
         }
     }
 

@@ -14,34 +14,39 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { db, type DbData } from "@/lib/db"
+import { Income, IncomeData } from "@/components/income-table"
+import { ExpenseData } from "@/components/expense-table"
+import { ScenarioData } from "@/lib/db"
 
 interface YearData {
-  incomeData: {
-    etpRate: number
-    monthlyData: {
-      etpCount: number[]
-      revenue: number[]
-    }
-  }
-  expenseData: {
-    expenses: Array<{
-      id: string
-      name: string
-      categories: string[]
-      group: string
-      isRecurring: boolean
-      monthlyAmount: number[]
-    }>
-    categories: string[]
-    groups: string[]
-  }
+  year: number
+  revenue: number
+  margin: number
+  marginPercentage: number
+  etp: number
+  students: number
+  [key: string]: number
+}
+
+interface MonthlyData {
+  month: string
+  revenue: number
+  margin: number
+  etp: number
+  students: number
+  [key: string]: number | string
+}
+
+interface YearlyData {
+  incomeData: IncomeData
+  expenseData: ExpenseData
 }
 
 interface EntityData {
-  years: Record<string, YearData>
+  years: Record<string, YearlyData>
 }
 
-interface ScenarioData {
+interface LocalScenarioData {
   entities: Entity[]
   entityData: Record<string, EntityData>
 }
@@ -50,7 +55,7 @@ export default function DashboardPage() {
   const [selectedEntity, setSelectedEntity] = useState<Entity>({ value: "global", label: "Global (Groupe CLAD)" })
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [currentScenario, setCurrentScenario] = useState<Scenario>({ id: "default", name: "Prévisionnel classique" })
-  const [scenarioData, setScenarioData] = useState<Record<string, ScenarioData>>({})
+  const [scenarioData, setScenarioData] = useState<Record<string, LocalScenarioData>>({})
   const [dbData, setDbData] = useState<DbData | null>(null)
   const [selectedYear, setSelectedYear] = useState<number>(2025)
   const [viewMode, setViewMode] = useState<"month" | "year">("month")
@@ -156,44 +161,54 @@ export default function DashboardPage() {
   const getChartData = () => {
     if (!currentScenario || !scenarioData[currentScenario.id]) return []
 
-    const years = viewMode === "year"
-      ? Array.from({ length: 16 }, (_, i) => 2020 + i)
-      : [selectedYear]
+    const years = Array.from({ length: 16 }, (_, i) => 2020 + i)
     const entityData = scenarioData[currentScenario.id].entityData
+    const expensesByGroup: Record<string, number> = {}
 
     return years.map(year => {
-      const data: any = { year }
-      let totalRevenue = 0
-      let totalExpenses = 0
-      let totalEtp = 0
-      let totalStudents = 0
-      const expensesByGroup: Record<string, number> = {}
+      const data: YearData = {
+        year,
+        revenue: 0,
+        margin: 0,
+        marginPercentage: 0,
+        etp: 0,
+        students: 0
+      }
 
       if (selectedEntity.value === "global") {
         // Pour l'entité globale, on somme les revenus et effectifs de toutes les entités
-        Object.entries(entityData).forEach(([_, entity]) => {
+        Object.entries(entityData).forEach(([entityKey, entity]) => {
           if (entity.years[year.toString()]) {
             const yearData = entity.years[year.toString()]
-            totalRevenue += yearData.incomeData.monthlyData.revenue.reduce((a: number, b: number) => a + b, 0)
+            const revenue = yearData.incomeData.monthlyData.revenue.reduce((sum: number, rev: number) => sum + rev, 0)
+            const customIncomes = yearData.incomeData.incomes?.reduce((sum: number, income: Income) => {
+              if (income.formula === "Per ETP") {
+                return sum + income.monthlyAmount.reduce((monthSum: number, amount: number) =>
+                  monthSum + ((amount || 0) * (income.etpRate || 0)), 0)
+              }
+              return sum + income.monthlyAmount.reduce((monthSum: number, amount: number) => monthSum + (amount || 0), 0)
+            }, 0) || 0
 
             // Calculer les dépenses par groupe
             yearData.expenseData.expenses.forEach(expense => {
               const group = expense.group || "Non trié"
               const expenseTotal = expense.monthlyAmount.reduce((a: number, b: number) => a + b, 0)
               expensesByGroup[group] = (expensesByGroup[group] || 0) + expenseTotal
-              totalExpenses += expenseTotal
+              data.margin -= expenseTotal
             })
 
             // Prendre la valeur maximale des effectifs sur l'année
             const maxEtpCount = Math.max(...yearData.incomeData.monthlyData.etpCount)
 
             // Ajouter aux totaux selon le type d'entité
-            const entityType = scenarioData[currentScenario.id].entities.find(e => e.value === _)?.type
+            const entityType = scenarioData[currentScenario.id].entities.find(e => e.value === entityKey)?.type
             if (entityType === "École") {
-              totalStudents += maxEtpCount
+              data.students = maxEtpCount
             } else if (entityType === "ESN" || entityType === "Groupe") {
-              totalEtp += maxEtpCount
+              data.etp = maxEtpCount
             }
+
+            data.revenue += revenue + customIncomes
           }
         })
       } else {
@@ -201,14 +216,21 @@ export default function DashboardPage() {
         const entity = entityData[selectedEntity.value]
         if (entity?.years[year.toString()]) {
           const yearData = entity.years[year.toString()]
-          totalRevenue = yearData.incomeData.monthlyData.revenue.reduce((a: number, b: number) => a + b, 0)
+          const revenue = yearData.incomeData.monthlyData.revenue.reduce((sum: number, rev: number) => sum + rev, 0)
+          const customIncomes = yearData.incomeData.incomes?.reduce((sum: number, income: Income) => {
+            if (income.formula === "Per ETP") {
+              return sum + income.monthlyAmount.reduce((monthSum: number, amount: number) =>
+                monthSum + ((amount || 0) * (income.etpRate || 0)), 0)
+            }
+            return sum + income.monthlyAmount.reduce((monthSum: number, amount: number) => monthSum + (amount || 0), 0)
+          }, 0) || 0
 
           // Calculer les dépenses par groupe
           yearData.expenseData.expenses.forEach(expense => {
             const group = expense.group || "Non trié"
             const expenseTotal = expense.monthlyAmount.reduce((a: number, b: number) => a + b, 0)
             expensesByGroup[group] = (expensesByGroup[group] || 0) + expenseTotal
-            totalExpenses += expenseTotal
+            data.margin -= expenseTotal
           })
 
           // Prendre la valeur maximale des effectifs sur l'année
@@ -217,18 +239,17 @@ export default function DashboardPage() {
           // Ajouter aux totaux selon le type d'entité
           const entityType = scenarioData[currentScenario.id].entities.find(e => e.value === selectedEntity.value)?.type
           if (entityType === "École") {
-            totalStudents = maxEtpCount
+            data.students = maxEtpCount
           } else if (entityType === "ESN" || entityType === "Groupe") {
-            totalEtp = maxEtpCount
+            data.etp = maxEtpCount
           }
+
+          data.revenue += revenue + customIncomes
         }
       }
 
-      data.revenue = totalRevenue
-      data.margin = totalRevenue - totalExpenses
-      data.marginPercentage = totalRevenue > 0 ? ((totalRevenue - totalExpenses) / totalRevenue) * 100 : 0
-      data.etp = totalEtp
-      data.students = totalStudents
+      data.margin = data.revenue + data.margin
+      data.marginPercentage = data.revenue > 0 ? (data.margin / data.revenue) * 100 : 0
 
       // Ajouter les dépenses par groupe
       Object.entries(expensesByGroup).forEach(([group, amount]) => {
@@ -247,11 +268,13 @@ export default function DashboardPage() {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
     return months.map((month, index) => {
-      const data: any = { month }
-      let totalRevenue = 0
-      let totalExpenses = 0
-      let totalEtp = 0
-      let totalStudents = 0
+      const data: MonthlyData = {
+        month,
+        revenue: 0,
+        margin: 0,
+        etp: 0,
+        students: 0
+      }
       const expensesByGroup: Record<string, number> = {}
 
       if (selectedEntity.value === "global") {
@@ -260,25 +283,31 @@ export default function DashboardPage() {
           if (entity.years[selectedYear.toString()]) {
             const yearData = entity.years[selectedYear.toString()]
             const revenue = yearData.incomeData.monthlyData.revenue[index] || 0
+            const customIncomes = yearData.incomeData.incomes?.reduce((sum: number, income: Income) => {
+              if (income.formula === "Per ETP") {
+                return sum + ((income.monthlyAmount[index] || 0) * (income.etpRate || 0))
+              }
+              return sum + (income.monthlyAmount[index] || 0)
+            }, 0) || 0
 
             // Calculer les dépenses par groupe
             yearData.expenseData.expenses.forEach(expense => {
               const group = expense.group || "Non trié"
               const expenseAmount = expense.monthlyAmount[index] || 0
               expensesByGroup[group] = (expensesByGroup[group] || 0) + expenseAmount
-              totalExpenses += expenseAmount
+              data.margin -= expenseAmount
             })
 
             // Ajouter les effectifs selon le type d'entité
             const etpCount = yearData.incomeData.monthlyData.etpCount[index] || 0
             const entityType = scenarioData[currentScenario.id].entities.find(e => e.value === entityKey)?.type
             if (entityType === "École") {
-              totalStudents += etpCount
+              data.students += etpCount
             } else if (entityType === "ESN" || entityType === "Groupe") {
-              totalEtp += etpCount
+              data.etp += etpCount
             }
 
-            totalRevenue += revenue
+            data.revenue += revenue + customIncomes
           }
         })
       } else {
@@ -287,36 +316,39 @@ export default function DashboardPage() {
         if (entity?.years[selectedYear.toString()]) {
           const yearData = entity.years[selectedYear.toString()]
           const revenue = yearData.incomeData.monthlyData.revenue[index] || 0
+          const customIncomes = yearData.incomeData.incomes?.reduce((sum: number, income: Income) => {
+            if (income.formula === "Per ETP") {
+              return sum + ((income.monthlyAmount[index] || 0) * (income.etpRate || 0))
+            }
+            return sum + (income.monthlyAmount[index] || 0)
+          }, 0) || 0
 
           // Calculer les dépenses par groupe
           yearData.expenseData.expenses.forEach(expense => {
             const group = expense.group || "Non trié"
             const expenseAmount = expense.monthlyAmount[index] || 0
             expensesByGroup[group] = (expensesByGroup[group] || 0) + expenseAmount
-            totalExpenses += expenseAmount
+            data.margin -= expenseAmount
           })
 
           // Ajouter les effectifs selon le type d'entité
           const etpCount = yearData.incomeData.monthlyData.etpCount[index] || 0
           const entityType = scenarioData[currentScenario.id].entities.find(e => e.value === selectedEntity.value)?.type
           if (entityType === "École") {
-            totalStudents = etpCount
+            data.students = etpCount
           } else if (entityType === "ESN" || entityType === "Groupe") {
-            totalEtp = etpCount
+            data.etp = etpCount
           }
 
-          totalRevenue += revenue
+          data.revenue += revenue + customIncomes
         }
       }
 
-      data.revenue = totalRevenue
-      data.margin = totalRevenue - totalExpenses
-      data.etp = totalEtp
-      data.students = totalStudents
+      data.margin = data.revenue + data.margin
 
       // Ajouter les dépenses par groupe
       Object.entries(expensesByGroup).forEach(([group, amount]) => {
-        data[`expenses_${group.replace(/\s+/g, '_')}`] = amount
+        data[`expenses_${group.replace(/\s+/g, '_')}`] = amount as number
       })
 
       return data

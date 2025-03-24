@@ -6,7 +6,7 @@ import Link from "next/link"
 
 import { EntitySelector, type Entity } from "@/components/entity-selector"
 import { YearSelector } from "@/components/year-selector"
-import { IncomeTable, type IncomeData } from "@/components/income-table"
+import { IncomeTable, type IncomeData, type Income } from "@/components/income-table"
 import { ExpenseTable, type ExpenseData, type Expense } from "@/components/expense-table"
 import { MarginTable } from "@/components/margin-table"
 import { ScenarioSelector, type Scenario } from "@/components/scenario-selector"
@@ -351,6 +351,9 @@ export default function PnLPage() {
       // Initialize global expense data with all categories from sub-entities
       const allCategories = new Set<string>()
       const allGroups = new Set<string>()
+      const allIncomes: Income[] = []
+      const allIncomeCategories = new Set<string>()
+      const allIncomeGroups = new Set<string>()
       const globalExpenses: Expense[] = []
 
       // Sum up all data from sub-entities
@@ -416,6 +419,41 @@ export default function PnLPage() {
       // Calculate weighted average ETP rate
       globalIncomeData.etpRate = totalEtpCount > 0 ? Math.round(totalEtpValue / totalEtpCount) : 0
 
+      // Collecter tous les incomes des entités avec leur préfixe
+      subEntities.forEach((entityKey) => {
+        const entityData = currentEntityData[entityKey]?.years[selectedYear]
+        if (entityData?.incomeData.incomes) {
+          // Ajouter les incomes avec le préfixe de l'entité
+          entityData.incomeData.incomes.forEach((income) => {
+            const newIncome = {
+              ...income,
+              id: `${entityKey}-${income.id}`,
+              name: `[${entityKey}] ${income.name}`,
+            }
+
+            // Si c'est un revenu de type Retention, mettre à jour le lien avec le revenu de l'année précédente
+            if (income.formula === "Retention" && income.previousYearIncomeId) {
+              newIncome.previousYearIncomeId = `${entityKey}-${income.previousYearIncomeId}`
+            }
+
+            allIncomes.push(newIncome)
+          })
+
+          // Collecter les catégories et groupes
+          if (entityData.incomeData.categories) {
+            entityData.incomeData.categories.forEach((category) => allIncomeCategories.add(category))
+          }
+          if (entityData.incomeData.groups) {
+            entityData.incomeData.groups.forEach((group) => allIncomeGroups.add(group))
+          }
+        }
+      })
+
+      // Ajouter les incomes, catégories et groupes aux données globales
+      globalIncomeData.incomes = allIncomes
+      globalIncomeData.categories = Array.from(allIncomeCategories)
+      globalIncomeData.groups = Array.from(allIncomeGroups)
+
       // Create global expense data
       const globalExpenseData: ExpenseData = {
         expenses: globalExpenses,
@@ -458,6 +496,9 @@ export default function PnLPage() {
 
         const allCategories = new Set<string>()
         const allGroups = new Set<string>()
+        const allIncomes: Income[] = []
+        const allIncomeCategories = new Set<string>()
+        const allIncomeGroups = new Set<string>()
         const globalExpenses: Expense[] = []
 
         let totalEtpCount = 0
@@ -477,7 +518,33 @@ export default function PnLPage() {
             totalEtpCount += entityTotalEtp
             totalEtpValue += entityTotalEtp * entityData.incomeData.etpRate
 
-            // Collecter les catégories et groupes
+            // Collecter les incomes avec le préfixe de l'entité
+            if (entityData.incomeData.incomes) {
+              entityData.incomeData.incomes.forEach((income) => {
+                const newIncome = {
+                  ...income,
+                  id: `${entityKey}-${income.id}`,
+                  name: `[${entityKey}] ${income.name}`,
+                }
+
+                // Si c'est un revenu de type Retention, mettre à jour le lien avec le revenu de l'année précédente
+                if (income.formula === "Retention" && income.previousYearIncomeId) {
+                  newIncome.previousYearIncomeId = `${entityKey}-${income.previousYearIncomeId}`
+                }
+
+                allIncomes.push(newIncome)
+              })
+            }
+
+            // Collecter les catégories et groupes des incomes
+            if (entityData.incomeData.categories) {
+              entityData.incomeData.categories.forEach((category) => allIncomeCategories.add(category))
+            }
+            if (entityData.incomeData.groups) {
+              entityData.incomeData.groups.forEach((group) => allIncomeGroups.add(group))
+            }
+
+            // Collecter les catégories et groupes des dépenses
             entityData.expenseData.categories.forEach((category) => allCategories.add(category))
             if (entityData.expenseData.groups) {
               entityData.expenseData.groups.forEach((group) => allGroups.add(group))
@@ -496,11 +563,17 @@ export default function PnLPage() {
           }
         })
 
-        // Calculer le taux ETP moyen pondéré
-        globalIncomeData.etpRate = totalEtpCount > 0 ? Math.round(totalEtpValue / totalEtpCount) : 0
-
         yearlyData[year] = {
-          incomeData: globalIncomeData,
+          incomeData: {
+            etpRate: totalEtpCount > 0 ? Math.round(totalEtpValue / totalEtpCount) : 0,
+            monthlyData: {
+              etpCount: Array(12).fill(Math.max(...globalIncomeData.monthlyData.etpCount)),
+              revenue: Array(12).fill(globalIncomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0) / 12),
+            },
+            incomes: allIncomes,
+            categories: Array.from(allIncomeCategories),
+            groups: Array.from(allIncomeGroups),
+          },
           expenseData: {
             expenses: globalExpenses,
             categories: Array.from(allCategories),
@@ -508,7 +581,7 @@ export default function PnLPage() {
           },
         }
       } else {
-        // Pour une entité spécifique, on garde la logique existante
+        // Pour une entité spécifique
         const entityData = scenarioData[currentScenario.id].entityData[selectedEntity.value]?.years[yearStr]
         if (entityData) {
           yearlyData[year] = {
@@ -518,6 +591,9 @@ export default function PnLPage() {
                 etpCount: Array(12).fill(Math.max(...entityData.incomeData.monthlyData.etpCount)),
                 revenue: Array(12).fill(entityData.incomeData.monthlyData.revenue.reduce((sum, rev) => sum + rev, 0) / 12),
               },
+              incomes: entityData.incomeData.incomes || [],
+              categories: entityData.incomeData.categories,
+              groups: entityData.incomeData.groups,
             },
             expenseData: {
               expenses: entityData.expenseData.expenses.map(expense => ({
@@ -526,6 +602,25 @@ export default function PnLPage() {
               })),
               categories: entityData.expenseData.categories,
               groups: entityData.expenseData.groups,
+            },
+          }
+        } else {
+          // Si les données n'existent pas pour cette année, initialiser avec des données vides
+          yearlyData[year] = {
+            incomeData: {
+              etpRate: 10000,
+              monthlyData: {
+                etpCount: Array(12).fill(0),
+                revenue: Array(12).fill(0),
+              },
+              incomes: [],
+              categories: [],
+              groups: [],
+            },
+            expenseData: {
+              expenses: [],
+              categories: ["HR", "Facilities", "Marketing", "IT", "Operations", "Education", "R&D"],
+              groups: ["Non trié"],
             },
           }
         }
@@ -637,6 +732,24 @@ export default function PnLPage() {
       if (entityData) {
         setIncomeData(entityData.incomeData)
         setExpenseData(entityData.expenseData)
+      } else {
+        // Si les données n'existent pas pour cette année, initialiser avec des données vides
+        const emptyData = {
+          incomeData: {
+            etpRate: 10000,
+            monthlyData: {
+              etpCount: Array(12).fill(0),
+              revenue: Array(12).fill(0),
+            },
+          },
+          expenseData: {
+            expenses: [],
+            categories: ["HR", "Facilities", "Marketing", "IT", "Operations", "Education", "R&D"],
+            groups: ["Non trié"],
+          },
+        }
+        setIncomeData(emptyData.incomeData)
+        setExpenseData(emptyData.expenseData)
       }
     }
   }
@@ -724,6 +837,85 @@ export default function PnLPage() {
     // Si l'année cible est l'année sélectionnée, mettre à jour les données affichées
     if (targetYear === selectedYear) {
       setExpenseData(entityData.years[targetYear.toString()].expenseData)
+    }
+  }
+
+  // Handle income duplication between years
+  const handleIncomeDuplicate = (income: Income, sourceYear: number, targetYear: number) => {
+    if (!currentScenario) return
+
+    setHasUnsavedChanges(true)
+
+    const updatedScenarioData = { ...scenarioData }
+    const currentScenarioData = updatedScenarioData[currentScenario.id]
+    const entityData = currentScenarioData.entityData[selectedEntity.value]
+    const sourceYearData = entityData.years[sourceYear.toString()]
+
+    if (!sourceYearData) {
+      console.error("Année source non trouvée")
+      return
+    }
+
+    // Créer une copie du revenu avec un nouvel ID
+    const newIncome: Income = {
+      ...income,
+      id: `${Date.now()}`,
+      name: `${income.name} (Copie)`,
+      year: targetYear,
+      years: new Set([targetYear]),
+      categories: income.categories,
+      formula: income.formula,
+      etpRate: income.etpRate,
+      retentionRate: income.retentionRate,
+      previousYearIncomeId: income.previousYearIncomeId
+    }
+
+    // Si l'année cible n'existe pas, l'initialiser
+    if (!entityData.years[targetYear.toString()]) {
+      entityData.years[targetYear.toString()] = {
+        incomeData: {
+          etpRate: sourceYearData.incomeData.etpRate,
+          monthlyData: {
+            etpCount: Array(12).fill(0),
+            revenue: Array(12).fill(0),
+          },
+          incomes: [],
+          categories: sourceYearData.incomeData.categories,
+          groups: sourceYearData.incomeData.groups,
+        },
+        expenseData: {
+          expenses: [],
+          categories: sourceYearData.expenseData.categories,
+          groups: sourceYearData.expenseData.groups,
+        },
+      }
+    }
+
+    // Ajouter le nouveau revenu dans l'année cible
+    const targetYearData = entityData.years[targetYear.toString()]
+    if (!targetYearData) {
+      console.error("Année cible non trouvée")
+      return
+    }
+
+    if (!targetYearData.incomeData.incomes) {
+      targetYearData.incomeData.incomes = []
+    }
+    targetYearData.incomeData.incomes.push(newIncome)
+
+    setScenarioData(updatedScenarioData)
+
+    // Forcer le rafraîchissement des données affichées
+    if (targetYear === selectedYear) {
+      // Créer une nouvelle référence pour forcer le rafraîchissement
+      const updatedIncomeData = {
+        ...targetYearData.incomeData,
+        incomes: [...(targetYearData.incomeData.incomes || [])]
+      }
+      setIncomeData(updatedIncomeData)
+    } else {
+      // Si on n'est pas dans l'année cible, on force un changement d'année
+      handleYearChange(targetYear)
     }
   }
 
@@ -926,6 +1118,18 @@ export default function PnLPage() {
               etpCount: [...sourceYearData.incomeData.monthlyData.etpCount],
               revenue: [...sourceYearData.incomeData.monthlyData.revenue],
             },
+            incomes: sourceYearData.incomeData.incomes?.map(income => ({
+              ...income,
+              id: `${income.id}-${Date.now()}`,
+              name: `${income.name} (Copie)`,
+              year: targetYear,
+              years: new Set([targetYear]),
+              etpRate: income.etpRate,
+              retentionRate: income.retentionRate,
+              previousYearIncomeId: income.previousYearIncomeId
+            })) || [],
+            categories: [...(sourceYearData.incomeData.categories || [])],
+            groups: [...(sourceYearData.incomeData.groups || [])],
           },
           expenseData: {
             expenses: sourceYearData.expenseData.expenses.map(expense => ({
@@ -1174,7 +1378,15 @@ export default function PnLPage() {
         <div className="space-y-8">
           {viewMode === "month" ? (
             <>
-              <IncomeTable data={incomeData} onChange={handleIncomeDataChange} isReadOnly={isGlobalView} entityType={selectedEntity.type} />
+              <IncomeTable
+                data={incomeData}
+                onChange={handleIncomeDataChange}
+                isReadOnly={isGlobalView}
+                entityType={selectedEntity.type}
+                onIncomeDuplicate={handleIncomeDuplicate}
+                selectedYear={selectedYear}
+                yearlyData={calculateYearlyData()}
+              />
               <ExpenseTable
                 data={expenseData}
                 onChange={handleExpenseDataChange}
@@ -1194,6 +1406,7 @@ export default function PnLPage() {
                 entityType={selectedEntity.type}
                 viewMode="year"
                 yearlyData={calculateYearlyData()}
+                selectedYear={selectedYear}
               />
               <ExpenseTable
                 data={calculateYearlyData()?.[selectedYear]?.expenseData || expenseData}
