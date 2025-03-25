@@ -18,6 +18,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
@@ -118,6 +124,8 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
   const [incomeToDuplicate, setIncomeToDuplicate] = React.useState<Income | null>(null)
   const [sourceYear, setSourceYear] = React.useState<number>(2025)
   const [targetYear, setTargetYear] = React.useState<number>(2025)
+  const [editIncomeRetentionRate, setEditIncomeRetentionRate] = React.useState(0)
+  const [editIncomePreviousYearId, setEditIncomePreviousYearId] = React.useState<string>("")
 
   // Initialize categories and groups if not present
   React.useEffect(() => {
@@ -217,8 +225,8 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
     }
 
     if (newIncomeFormula === "Retention") {
-      if (!newIncomeRetentionRate || newIncomeRetentionRate <= 0 || newIncomeRetentionRate > 100) {
-        errors.amount = "Le taux de rétention doit être compris entre 0 et 100"
+      if (!newIncomeRetentionRate || newIncomeRetentionRate <= 0 || newIncomeRetentionRate > 200) {
+        errors.amount = "Le taux de rétention doit être compris entre 0 et 200"
       }
       if (!newIncomePreviousYearId) {
         errors.amount = "Un revenu de l'année précédente doit être sélectionné"
@@ -618,10 +626,12 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
     setEditIncomeName(income.name)
     setEditIncomeGroup(income.group)
     setEditIncomeFormula(income.formula)
-    setEditIncomeAmount(income.monthlyAmount[0] || 0)
+    setEditIncomeAmount(income.formula === "Retention" ? (income.etpRate || 0) : (income.monthlyAmount[0] || 0))
     setEditIncomeEtpRate(income.etpRate || 0)
     setEditIncomeIsRecurring(income.isRecurring)
     setEditSelectedCategories(income.categories)
+    setEditIncomeRetentionRate(income.retentionRate || 0)
+    setEditIncomePreviousYearId(income.previousYearIncomeId || "")
     setEditDialogOpen(true)
   }
 
@@ -630,17 +640,34 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
 
     const updatedIncomes = data.incomes.map((income) => {
       if (income.id === incomeToEdit.id) {
-        // Préserver les montants mensuels existants
-        const updatedMonthlyAmount = [...income.monthlyAmount]
+        let updatedMonthlyAmount = []
 
-        // Si c'est un revenu récurrent, mettre à jour tous les mois avec la nouvelle valeur
-        if (editIncomeIsRecurring) {
-          for (let i = 0; i < 12; i++) {
-            updatedMonthlyAmount[i] = editIncomeAmount
+        if (editIncomeFormula === "Retention" && editIncomePreviousYearId) {
+          // Chercher l'income de référence dans les données de l'année précédente
+          const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData
+          const previousIncome = previousYearData?.incomes?.find(
+            (i) => i.id === editIncomePreviousYearId
+          )
+
+          if (previousIncome) {
+            // Calculer les nouveaux montants mensuels en appliquant le taux de rétention
+            updatedMonthlyAmount = previousIncome.monthlyAmount.map(
+              amount => (amount * editIncomeRetentionRate) / 100
+            )
+          } else {
+            // Si on ne trouve pas l'income de référence, initialiser à zéro
+            updatedMonthlyAmount = Array(12).fill(0)
           }
+        } else if (editIncomeFormula === "Amount") {
+          // Pour les revenus de type Amount, gérer la récurrence
+          updatedMonthlyAmount = editIncomeIsRecurring
+            ? Array(12).fill(editIncomeAmount)
+            : income.monthlyAmount.map((_, index) => index === 0 ? editIncomeAmount : 0)
         } else {
-          // Sinon, mettre à jour uniquement le premier mois
-          updatedMonthlyAmount[0] = editIncomeAmount
+          // Pour les autres types (Per ETP), garder monthlyAmount comme avant
+          updatedMonthlyAmount = editIncomeIsRecurring
+            ? Array(12).fill(editIncomeAmount)
+            : income.monthlyAmount.map((_, index) => index === 0 ? editIncomeAmount : 0)
         }
 
         return {
@@ -651,9 +678,11 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
           formula: editIncomeFormula,
           isRecurring: editIncomeIsRecurring,
           monthlyAmount: updatedMonthlyAmount,
-          etpRate: editIncomeFormula === "Per ETP" ? editIncomeEtpRate : undefined,
-          retentionRate: editIncomeFormula === "Retention" ? income.retentionRate : undefined,
-          previousYearIncomeId: editIncomeFormula === "Retention" ? income.previousYearIncomeId : undefined
+          etpRate: editIncomeFormula === "Per ETP" ? editIncomeEtpRate :
+            editIncomeFormula === "Retention" ? editIncomeAmount :
+              undefined,
+          retentionRate: editIncomeFormula === "Retention" ? editIncomeRetentionRate : undefined,
+          previousYearIncomeId: editIncomeFormula === "Retention" ? editIncomePreviousYearId : undefined
         }
       }
       return income
@@ -943,7 +972,7 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
                             id="income-retention-rate"
                             type="number"
                             min="0"
-                            max="100"
+                            max="200"
                             value={newIncomeRetentionRate || ""}
                             onChange={(e) => setNewIncomeRetentionRate(Number(e.target.value))}
                             className={formErrors.amount ? "border-red-500" : ""}
@@ -1372,7 +1401,7 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
                   className="col-span-3"
                 />
               </div>
-            ) : (
+            ) : editIncomeFormula === "Per ETP" ? (
               <>
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label htmlFor="edit-income-etp-rate" className="text-right">
@@ -1397,6 +1426,75 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
                     onChange={(e) => setEditIncomeAmount(Number(e.target.value))}
                     className="col-span-3"
                     step="0.1"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="edit-income-retention-rate" className="text-right">
+                    Taux de rétention (%)
+                  </Label>
+                  <Input
+                    id="edit-income-retention-rate"
+                    type="number"
+                    min="0"
+                    max="200"
+                    value={editIncomeRetentionRate || ""}
+                    onChange={(e) => setEditIncomeRetentionRate(Number(e.target.value))}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="edit-previousYearIncome">Revenu année précédente</Label>
+                  <div className="col-span-3 flex items-center gap-2">
+                    <Select
+                      value={editIncomePreviousYearId}
+                      onValueChange={setEditIncomePreviousYearId}
+                    >
+                      <SelectTrigger className="w-[200px]">
+                        <SelectValue placeholder="Sélectionner un revenu" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(() => {
+                          const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
+                          if (!previousYearData?.incomes?.length) {
+                            return (
+                              <SelectItem value="no-data" disabled>
+                                Aucun revenu disponible pour l'année {selectedYear - 1}
+                              </SelectItem>
+                            );
+                          }
+                          const eligibleIncomes = previousYearData.incomes.filter(income =>
+                            income.formula === "Per ETP" || income.formula === "Retention"
+                          );
+                          if (eligibleIncomes.length === 0) {
+                            return (
+                              <SelectItem value="no-data" disabled>
+                                Aucun revenu de type "Par ETP" ou "Rétention" disponible pour l'année {selectedYear - 1}
+                              </SelectItem>
+                            );
+                          }
+                          return eligibleIncomes.map((income) => (
+                            <SelectItem key={income.id} value={income.id}>
+                              {income.name} ({income.formula === "Per ETP" ? "Par ETP" : "Rétention"})
+                            </SelectItem>
+                          ));
+                        })()}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="edit-income-amount" className="text-right">
+                    Montant (€)
+                  </Label>
+                  <Input
+                    id="edit-income-amount"
+                    type="number"
+                    value={editIncomeAmount || ""}
+                    onChange={(e) => setEditIncomeAmount(Number(e.target.value))}
+                    className="col-span-3"
                   />
                 </div>
               </>
@@ -1748,9 +1846,35 @@ function YearlyIncomeTable({ data, entityType, yearlyData, isReadOnly }: {
                                       {formatNumber(calculatedCount)} {getEntityLabel()}
                                     </div>
                                   )}
-                                  <div className="px-2 py-1 rounded-md bg-muted/50">
-                                    {calculatedAmount.toLocaleString("fr-FR")} €
-                                  </div>
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <div className="px-2 py-1 rounded-md bg-muted/50 cursor-help">
+                                          {calculatedAmount.toLocaleString("fr-FR")} €
+                                        </div>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <div className="space-y-1 text-sm">
+                                          <div>Formule : {currentIncome.formula === "Per ETP" ? "Par ETP" :
+                                            currentIncome.formula === "Retention" ? "Rétention" : "Montant fixe"}</div>
+                                          {(currentIncome.formula === "Per ETP" || currentIncome.formula === "Retention") && (
+                                            <div>Taux ETP : {incomeEtpRate.toLocaleString("fr-FR")} €</div>
+                                          )}
+                                          {currentIncome.formula === "Retention" && (
+                                            <div>Taux de rétention : {currentIncome.retentionRate}%</div>
+                                          )}
+                                          <div>Calcul : {(() => {
+                                            if (currentIncome.formula === "Per ETP") {
+                                              return `${formatNumber(yearlyAmount)} ETP × ${incomeEtpRate.toLocaleString("fr-FR")} €`
+                                            } else if (currentIncome.formula === "Retention") {
+                                              return `${formatNumber(yearlyAmount)} ETP × ${incomeEtpRate.toLocaleString("fr-FR")} €`
+                                            }
+                                            return `${yearlyAmount.toLocaleString("fr-FR")} €`
+                                          })()}</div>
+                                        </div>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
                                   {currentIncome.formula === "Retention" && (
                                     <div className="text-xs text-muted-foreground">
                                       {currentIncome.retentionRate}% de rétention
