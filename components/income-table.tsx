@@ -243,15 +243,37 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
       })
     }
 
+    // Initialiser les montants mensuels
+    let monthlyAmounts: number[] = Array(12).fill(0)
+
+    // Si c'est un revenu de type Retention, copier les montants de l'année précédente
+    if (newIncomeFormula === "Retention" && newIncomePreviousYearId && yearlyData) {
+      const previousYearData = yearlyData[selectedYear - 1]?.incomeData
+      if (previousYearData?.incomes) {
+        const previousYearIncome = previousYearData.incomes.find(i => i.id === newIncomePreviousYearId)
+        if (previousYearIncome) {
+          // Copier les montants mensuels en appliquant le taux de rétention
+          monthlyAmounts = previousYearIncome.monthlyAmount.map(amount =>
+            amount * (newIncomeRetentionRate || 0) / 100
+          )
+        }
+      }
+    } else if (newIncomeIsRecurring) {
+      monthlyAmounts = Array(12).fill(newIncomeAmount)
+    } else {
+      monthlyAmounts = [newIncomeAmount, ...Array(11).fill(0)]
+    }
+
     const newIncome: Income = {
       id: Date.now().toString(),
       name: newIncomeName.trim(),
       categories: selectedCategories,
       group: groupToUse,
       isRecurring: newIncomeIsRecurring,
-      monthlyAmount: newIncomeIsRecurring ? Array(12).fill(newIncomeAmount) : [newIncomeAmount, ...Array(11).fill(0)],
+      monthlyAmount: monthlyAmounts,
       formula: newIncomeFormula,
-      etpRate: newIncomeFormula === "Per ETP" ? newIncomeEtpRate : undefined,
+      etpRate: newIncomeFormula === "Per ETP" ? newIncomeEtpRate :
+        newIncomeFormula === "Retention" ? newIncomeAmount : undefined,
       retentionRate: newIncomeFormula === "Retention" ? newIncomeRetentionRate : undefined,
       previousYearIncomeId: newIncomeFormula === "Retention" ? newIncomePreviousYearId : undefined
     }
@@ -313,22 +335,7 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
       if (income.formula === "Per ETP") {
         return sum + ((income.monthlyAmount[month] || 0) * (income.etpRate || 0))
       } else if (income.formula === "Retention") {
-        // Trouver le revenu de l'année précédente
-        const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
-        if (!previousYearData?.incomes?.length) return sum;
-
-        const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
-        if (!previousYearIncome) return sum;
-
-        const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
-        const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
-
-        // Calculer le montant en utilisant le etpRate du revenu précédent si c'est un revenu Per ETP
-        const amount = previousYearIncome.formula === "Per ETP"
-          ? retentionAmount * (previousYearIncome.etpRate || 0)
-          : retentionAmount;
-
-        return sum + amount;
+        return sum + ((income.monthlyAmount[month] || 0) * (income.etpRate || 0))
       }
       return sum + (income.monthlyAmount[month] || 0)
     }, 0) || 0
@@ -338,17 +345,7 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
         if (income.formula === "Per ETP") {
           return sum + (income.monthlyAmount[month] || 0)
         } else if (income.formula === "Retention") {
-          // Trouver le revenu de l'année précédente
-          const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
-          if (!previousYearData?.incomes?.length) return sum;
-
-          const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
-          if (!previousYearIncome) return sum;
-
-          const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
-          const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
-
-          return sum + retentionAmount;
+          return sum + (income.monthlyAmount[month] || 0)
         }
         return sum
       }, 0) || 0)
@@ -358,25 +355,11 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
   const calculateTotal = () => {
     const customIncomesTotal = data.incomes?.reduce((sum, income) => {
       if (income.formula === "Per ETP") {
-        return sum + income.monthlyAmount.reduce((monthSum, amount, index) =>
+        return sum + income.monthlyAmount.reduce((monthSum, amount) =>
           monthSum + ((amount || 0) * (income.etpRate || 0)), 0)
       } else if (income.formula === "Retention") {
-        // Trouver le revenu de l'année précédente
-        const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
-        if (!previousYearData?.incomes?.length) return sum;
-
-        const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
-        if (!previousYearIncome) return sum;
-
-        // Calculer la valeur de rétention pour chaque mois
-        return sum + income.monthlyAmount.reduce((monthSum, amount, month) => {
-          const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
-          const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
-          const finalAmount = previousYearIncome.formula === "Per ETP"
-            ? retentionAmount * (previousYearIncome.etpRate || 0)
-            : retentionAmount;
-          return monthSum + finalAmount;
-        }, 0)
+        return sum + income.monthlyAmount.reduce((monthSum, amount) =>
+          monthSum + ((amount || 0) * (income.etpRate || 0)), 0)
       }
       return sum + income.monthlyAmount.reduce((monthSum, amount) => monthSum + (amount || 0), 0)
     }, 0) || 0
@@ -386,19 +369,7 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
         if (income.formula === "Per ETP") {
           return sum + income.monthlyAmount.reduce((sum, amount) => sum + (amount || 0), 0)
         } else if (income.formula === "Retention") {
-          // Trouver le revenu de l'année précédente
-          const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
-          if (!previousYearData?.incomes?.length) return sum;
-
-          const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
-          if (!previousYearIncome) return sum;
-
-          // Calculer la valeur de rétention pour chaque mois
-          return sum + income.monthlyAmount.reduce((monthSum, amount, month) => {
-            const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
-            const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
-            return monthSum + retentionAmount;
-          }, 0)
+          return sum + income.monthlyAmount.reduce((sum, amount) => sum + (amount || 0), 0)
         }
         return sum
       }, 0) || 0)
@@ -513,22 +484,7 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
           if (income.formula === "Per ETP") {
             return total + ((income.monthlyAmount[month] || 0) * (income.etpRate || 0))
           } else if (income.formula === "Retention") {
-            // Trouver le revenu de l'année précédente
-            const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
-            if (!previousYearData?.incomes?.length) return total;
-
-            const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
-            if (!previousYearIncome) return total;
-
-            const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
-            const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
-
-            // Calculer le montant en utilisant le etpRate du revenu précédent si c'est un revenu Per ETP
-            const amount = previousYearIncome.formula === "Per ETP"
-              ? retentionAmount * (previousYearIncome.etpRate || 0)
-              : retentionAmount;
-
-            return total + amount;
+            return total + ((income.monthlyAmount[month] || 0) * (income.etpRate || 0))
           }
           return total + (income.monthlyAmount[month] || 0)
         }, 0),
@@ -536,17 +492,7 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
           if (income.formula === "Per ETP") {
             return total + (income.monthlyAmount[month] || 0)
           } else if (income.formula === "Retention") {
-            // Trouver le revenu de l'année précédente
-            const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
-            if (!previousYearData?.incomes?.length) return total;
-
-            const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
-            if (!previousYearIncome) return total;
-
-            const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
-            const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
-
-            return total + retentionAmount;
+            return total + (income.monthlyAmount[month] || 0)
           }
           return total
         }, 0)
@@ -555,25 +501,11 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
     return {
       amount: incomes.reduce((total, income) => {
         if (income.formula === "Per ETP") {
-          return total + income.monthlyAmount.reduce((sum, amount, index) =>
+          return total + income.monthlyAmount.reduce((sum, amount) =>
             sum + ((amount || 0) * (income.etpRate || 0)), 0)
         } else if (income.formula === "Retention") {
-          // Trouver le revenu de l'année précédente
-          const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
-          if (!previousYearData?.incomes?.length) return total;
-
-          const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
-          if (!previousYearIncome) return total;
-
-          // Calculer la valeur de rétention pour chaque mois
-          return total + income.monthlyAmount.reduce((monthSum, amount, month) => {
-            const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
-            const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
-            const finalAmount = previousYearIncome.formula === "Per ETP"
-              ? retentionAmount * (previousYearIncome.etpRate || 0)
-              : retentionAmount;
-            return monthSum + finalAmount;
-          }, 0)
+          return total + income.monthlyAmount.reduce((sum, amount) =>
+            sum + ((amount || 0) * (income.etpRate || 0)), 0)
         }
         return total + income.monthlyAmount.reduce((sum, amount) => sum + (amount || 0), 0)
       }, 0),
@@ -581,19 +513,7 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
         if (income.formula === "Per ETP") {
           return total + income.monthlyAmount.reduce((sum, amount) => sum + (amount || 0), 0)
         } else if (income.formula === "Retention") {
-          // Trouver le revenu de l'année précédente
-          const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
-          if (!previousYearData?.incomes?.length) return total;
-
-          const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
-          if (!previousYearIncome) return total;
-
-          // Calculer la valeur de rétention pour chaque mois
-          return total + income.monthlyAmount.reduce((monthSum, amount, month) => {
-            const previousYearAmount = previousYearIncome.monthlyAmount[month] || 0;
-            const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
-            return monthSum + retentionAmount;
-          }, 0)
+          return total + income.monthlyAmount.reduce((sum, amount) => sum + (amount || 0), 0)
         }
         return total
       }, 0)
@@ -1053,17 +973,19 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
                                     </SelectItem>
                                   );
                                 }
-                                const etpIncomes = previousYearData.incomes.filter(income => income.formula === "Per ETP");
-                                if (etpIncomes.length === 0) {
+                                const eligibleIncomes = previousYearData.incomes.filter(income =>
+                                  income.formula === "Per ETP" || income.formula === "Retention"
+                                );
+                                if (eligibleIncomes.length === 0) {
                                   return (
                                     <SelectItem value="no-data" disabled>
-                                      Aucun revenu de type "Par ETP" disponible pour l'année {selectedYear - 1}
+                                      Aucun revenu de type "Par ETP" ou "Rétention" disponible pour l'année {selectedYear - 1}
                                     </SelectItem>
                                   );
                                 }
-                                return etpIncomes.map((income) => (
+                                return eligibleIncomes.map((income) => (
                                   <SelectItem key={income.id} value={income.id}>
-                                    {income.name}
+                                    {income.name} ({income.formula === "Per ETP" ? "Par ETP" : "Rétention"})
                                   </SelectItem>
                                 ));
                               })()}
@@ -1235,23 +1157,7 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
                                         </div>
                                       ) : yearIncome.formula === "Retention" ? (
                                         <div className="px-2 py-1 rounded-md bg-muted/50">
-                                          {(() => {
-                                            const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
-                                            if (!previousYearData?.incomes?.length) return "0 €";
-
-                                            const previousYearIncome = previousYearData.incomes.find(i => i.id === yearIncome.previousYearIncomeId);
-                                            if (!previousYearIncome) return "0 €";
-
-                                            const previousYearAmount = previousYearIncome.monthlyAmount[index] || 0;
-                                            const retentionAmount = previousYearAmount * (yearIncome.retentionRate || 0) / 100;
-
-                                            // Calculer le montant en utilisant le etpRate du revenu précédent si c'est un revenu Per ETP
-                                            const amount = previousYearIncome.formula === "Per ETP"
-                                              ? retentionAmount * (previousYearIncome.etpRate || 0)
-                                              : retentionAmount;
-
-                                            return `${amount.toLocaleString("fr-FR")} €`;
-                                          })()}
+                                          {(yearlyAmount * (yearIncome.etpRate || 0)).toLocaleString("fr-FR")} €
                                         </div>
                                       ) : (
                                         isReadOnly ? (
@@ -1277,20 +1183,8 @@ export function IncomeTable({ data, onChange, isReadOnly = false, entityType = "
                                     return income.monthlyAmount.reduce((sum, monthlyAmount, index) =>
                                       sum + (monthlyAmount * (income.etpRate || 0)), 0).toLocaleString("fr-FR") + " €"
                                   } else if (income.formula === "Retention") {
-                                    const previousYearData = yearlyData?.[selectedYear - 1]?.incomeData;
-                                    if (!previousYearData?.incomes?.length) return "0 €";
-
-                                    const previousYearIncome = previousYearData.incomes.find(i => i.id === income.previousYearIncomeId);
-                                    if (!previousYearIncome) return "0 €";
-
-                                    return income.monthlyAmount.reduce((sum, monthlyAmount, index) => {
-                                      const previousYearAmount = previousYearIncome.monthlyAmount[index] || 0;
-                                      const retentionAmount = previousYearAmount * (income.retentionRate || 0) / 100;
-                                      const finalAmount = previousYearIncome.formula === "Per ETP"
-                                        ? retentionAmount * (previousYearIncome.etpRate || 0)
-                                        : retentionAmount;
-                                      return sum + finalAmount;
-                                    }, 0).toLocaleString("fr-FR")
+                                    return income.monthlyAmount.reduce((sum, monthlyAmount) =>
+                                      sum + (monthlyAmount * (income.etpRate || 0)), 0).toLocaleString("fr-FR") + " €"
                                   }
                                   return income.monthlyAmount.reduce((sum, monthlyAmount) => sum + monthlyAmount, 0).toLocaleString("fr-FR") + " €"
                                 })()}
