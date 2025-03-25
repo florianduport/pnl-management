@@ -1564,12 +1564,13 @@ function YearlyIncomeTable({ data, entityType, yearlyData, isReadOnly }: {
       return acc
     }, {} as Record<string, Record<number, { year: number; amount: number; count: number; incomes: Income[] }>>)
 
-    // Récupérer tous les incomes uniques de toutes les années
+    // Récupérer tous les incomes uniques de toutes les années en se basant sur le nom et le groupe
     const uniqueIncomes = new Map<string, Income>()
     yearlyViewData.forEach(yearData => {
       yearData.incomes.forEach(income => {
-        if (!uniqueIncomes.has(income.id)) {
-          uniqueIncomes.set(income.id, income)
+        const key = `${income.group}-${income.name}`
+        if (!uniqueIncomes.has(key)) {
+          uniqueIncomes.set(key, income)
         }
       })
     })
@@ -1700,20 +1701,17 @@ function YearlyIncomeTable({ data, entityType, yearlyData, isReadOnly }: {
                   {expandedGroups.has(group) && (
                     <>
                       {uniqueIncomes.map((baseIncome: Income) => (
-                        <TableRow key={baseIncome.id}>
+                        <TableRow key={`${baseIncome.group}-${baseIncome.name}`}>
                           <TableCell className="font-medium">
                             <div className="space-y-1">
                               {baseIncome.name}
-                              {baseIncome.formula === "Retention" && (
-                                <div className="text-xs text-muted-foreground">
-                                  {baseIncome.retentionRate}% de rétention
-                                </div>
-                              )}
                             </div>
                           </TableCell>
                           {years.map((year) => {
                             const currentYearData = yearData[year]
-                            const currentIncome = currentYearData?.incomes.find(i => i.id === baseIncome.id)
+                            const currentIncome = currentYearData?.incomes.find(i =>
+                              i.name === baseIncome.name && i.group === baseIncome.group
+                            )
 
                             if (!currentIncome) {
                               return (
@@ -1753,6 +1751,11 @@ function YearlyIncomeTable({ data, entityType, yearlyData, isReadOnly }: {
                                   <div className="px-2 py-1 rounded-md bg-muted/50">
                                     {calculatedAmount.toLocaleString("fr-FR")} €
                                   </div>
+                                  {currentIncome.formula === "Retention" && (
+                                    <div className="text-xs text-muted-foreground">
+                                      {currentIncome.retentionRate}% de rétention
+                                    </div>
+                                  )}
                                 </div>
                               </TableCell>
                             )
